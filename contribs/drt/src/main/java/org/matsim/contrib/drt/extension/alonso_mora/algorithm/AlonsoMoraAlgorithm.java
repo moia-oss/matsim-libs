@@ -22,8 +22,10 @@ import org.matsim.contrib.drt.extension.alonso_mora.algorithm.AlonsoMoraStop.Sto
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.assignment.AssignmentSolver;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.assignment.AssignmentSolver.Solution;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.AlonsoMoraFunction;
-import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.RouteTracker;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.AlonsoMoraFunction.Result;
+import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.OccupancyInfo;
+import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.RouteTracker;
+import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.RouteTrackerFactory;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.graphs.DefaultRequestGraph;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.graphs.DefaultVehicleGraph;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.graphs.RequestGraph;
@@ -54,11 +56,11 @@ import com.google.common.base.Verify;
 /**
  * This class performs all the request and vehicle management and bookkeeping
  * tasks to run the fleet control strategy described in
- * 
+ *
  * Alonso-Mora, J., Samaranayake, S., Wallar, A., Frazzoli, E., Rus, D., 2017.
  * On-demand high-capacity ride-sharing via dynamic trip-vehicle assignment.
  * Proc Natl Acad Sci USA 114, 462–467. https://doi.org/10.1073/pnas.1611675114
- * 
+ *
  */
 public class AlonsoMoraAlgorithm {
 	private final Logger logger = Logger.getLogger(AlonsoMoraAlgorithm.class);
@@ -91,10 +93,13 @@ public class AlonsoMoraAlgorithm {
 
 	private final AlgorithmSettings settings;
 
+	private final RouteTrackerFactory routeTrackerFactory;
+
+
 	public AlonsoMoraAlgorithm(Fleet fleet, AssignmentSolver assignmentSolver, RelocationSolver rebalancingSolver,
 			AlonsoMoraFunction function, AlonsoMoraScheduler scheduler, EventsManager eventsManager, String mode,
 			AlonsoMoraVehicleFactory vehicleFactory, ForkJoinPool forkJoinPool, TravelTimeEstimator travelTimeEstimator,
-			double stopDuration, AlgorithmSettings settings) {
+			double stopDuration, AlgorithmSettings settings, RouteTrackerFactory routeTrackerFactory) {
 		this.assignmentSolver = assignmentSolver;
 		this.rebalancingSolver = rebalancingSolver;
 		this.scheduler = scheduler;
@@ -105,6 +110,8 @@ public class AlonsoMoraAlgorithm {
 		this.travelTimeEstimator = travelTimeEstimator;
 		this.stopDuration = stopDuration;
 		this.settings = settings;
+
+		this.routeTrackerFactory = routeTrackerFactory;
 
 		// Create vehicle wrappers
 		vehicles = new ArrayList<>(fleet.getVehicles().size());
@@ -129,7 +136,7 @@ public class AlonsoMoraAlgorithm {
 		 * We do not work with a simple flag here, but we examine the vehicle schedule.
 		 * This way the detecting is robust for outside manipulations of the schedule,
 		 * for instance, when we use the existing relocation algorithms for DRT.
-		 * 
+		 *
 		 * There are edge cases where a vehicle is currently relocating, but it then
 		 * gets a pickup assigned. However, the assignment rate is so high, that the
 		 * vehicle is still finishing the last link of the relocation trip when the next
@@ -163,7 +170,7 @@ public class AlonsoMoraAlgorithm {
 	 * As entering/exiting vehicles in MATSim does not need to be determinstic,
 	 * here, we detect whether agents enter/exit vehicles on the fly before the
 	 * dispatching step.
-	 * 
+	 *
 	 * Furthermore, the vehicles are informed whether passengers have entered or
 	 * exited.
 	 */
@@ -308,8 +315,10 @@ public class AlonsoMoraAlgorithm {
 						v.setRoute(updatedRoute);
 
 						if (updatedRoute.size() > 0) {
-							RouteTracker congestionTracker = new RouteTracker(travelTimeEstimator, stopDuration, 0,
-									diversion.time, Optional.of(diversion.link));
+							Map<String, Integer> initialOccupancies = new HashMap<>();
+							initialOccupancies.put(OccupancyInfo.REGULAR, 0);
+							RouteTracker congestionTracker = routeTrackerFactory.createRouteTracker(initialOccupancies,
+									stopDuration, diversion.time, diversion.link);
 							congestionTracker.setDrivingState(v);
 							congestionTracker.update(v.getRoute());
 						}

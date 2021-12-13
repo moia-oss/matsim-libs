@@ -1,5 +1,6 @@
 package org.matsim.contrib.drt.extension.alonso_mora.algorithm.function;
 
+import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Optional;
@@ -10,7 +11,6 @@ import org.matsim.api.core.v01.network.Link;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.AlonsoMoraRequest;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.AlonsoMoraStop;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.AlonsoMoraStop.StopType;
-import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.RouteTracker;
 import org.matsim.contrib.drt.extension.alonso_mora.travel_time.TravelTimeEstimator;
 import org.mockito.Mockito;
 
@@ -30,7 +30,9 @@ public class RouteTrackerTest {
 		AlonsoMoraRequest request = Mockito.mock(AlonsoMoraRequest.class);
 		Mockito.when(request.getSize()).thenReturn(1);
 
-		RouteTracker tracker = new RouteTracker(estimator, 5.0, 3, 7000.0, Optional.empty());
+		HashMap<String, Integer> initialOccupancies = new HashMap<>();
+		initialOccupancies.put(OccupancyInfo.REGULAR, 3);
+		RouteTracker tracker = new DefaultRouteTrackerFactory(estimator).createRouteTracker(initialOccupancies, 5, 7000.0, null);
 
 		List<AlonsoMoraStop> initialStops = new LinkedList<>();
 		initialStops.add(new AlonsoMoraStop(StopType.Pickup, linkA, request));
@@ -65,7 +67,10 @@ public class RouteTrackerTest {
 		AlonsoMoraRequest request = Mockito.mock(AlonsoMoraRequest.class);
 		Mockito.when(request.getSize()).thenReturn(1);
 
-		RouteTracker tracker = new RouteTracker(estimator, 5.0, 3, 7000.0, Optional.of(linkVehicle));
+		HashMap<String, Integer> initialOccupancies = new HashMap<>();
+		initialOccupancies.put(OccupancyInfo.REGULAR, 3);
+		RouteTracker tracker = new DefaultRouteTrackerFactory(estimator).createRouteTracker(initialOccupancies, 5, 7000.0, linkVehicle);
+
 
 		List<AlonsoMoraStop> initialStops = new LinkedList<>();
 		initialStops.add(new AlonsoMoraStop(StopType.Pickup, linkA, request));
@@ -95,7 +100,11 @@ public class RouteTrackerTest {
 		AlonsoMoraRequest request = Mockito.mock(AlonsoMoraRequest.class);
 		Mockito.when(request.getSize()).thenReturn(1);
 
-		RouteTracker tracker = new RouteTracker(estimator, 5.0, 0, 7000.0, Optional.empty());
+		HashMap<String, Integer> initialOccupancies = new HashMap<>();
+		initialOccupancies.put(OccupancyInfo.REGULAR, 0);
+		RouteTracker tracker = new DefaultRouteTrackerFactory(estimator).createRouteTracker(initialOccupancies, 5, 7000.0, null);
+
+
 
 		List<AlonsoMoraStop> initialStops = new LinkedList<>();
 		initialStops.add(new AlonsoMoraStop(StopType.Pickup, linkA, request));
@@ -152,7 +161,10 @@ public class RouteTrackerTest {
 		AlonsoMoraRequest request3 = Mockito.mock(AlonsoMoraRequest.class);
 		Mockito.when(request3.getSize()).thenReturn(3);
 
-		RouteTracker tracker = new RouteTracker(estimator, 5.0, 0, 7000.0, Optional.empty());
+		HashMap<String, Integer> initialOccupancies = new HashMap<>();
+		initialOccupancies.put(OccupancyInfo.REGULAR, 0);
+		RouteTracker tracker = new DefaultRouteTrackerFactory(estimator).createRouteTracker(initialOccupancies, 5, 7000.0, null);
+
 
 		List<AlonsoMoraStop> initialStops = new LinkedList<>();
 		initialStops.add(new AlonsoMoraStop(StopType.Pickup, linkA, request1));
@@ -182,7 +194,10 @@ public class RouteTrackerTest {
 				estimator.estimateTravelTime(Mockito.any(), Mockito.any(), Mockito.anyDouble(), Mockito.anyDouble()))
 				.thenReturn(100.0);
 
-		RouteTracker tracker = new RouteTracker(estimator, 5.0, 0, 7000.0, Optional.empty());
+		HashMap<String, Integer> initialOccupancies = new HashMap<>();
+		initialOccupancies.put(OccupancyInfo.REGULAR, 0);
+		RouteTracker tracker = new DefaultRouteTrackerFactory(estimator).createRouteTracker(initialOccupancies, 5, 7000.0, null);
+
 
 		AlonsoMoraRequest request = Mockito.mock(AlonsoMoraRequest.class);
 		Mockito.when(request.getSize()).thenReturn(1);
@@ -239,7 +254,10 @@ public class RouteTrackerTest {
 		Mockito.when(estimator.estimateTravelTime(Mockito.eq(linkB), Mockito.eq(linkB), Mockito.anyDouble(),
 				Mockito.anyDouble())).thenReturn(0.0);
 
-		RouteTracker tracker = new RouteTracker(estimator, 5.0, 0, 7000.0, Optional.empty());
+		HashMap<String, Integer> initialOccupancies = new HashMap<>();
+		initialOccupancies.put(OccupancyInfo.REGULAR, 0);
+		RouteTracker tracker = new DefaultRouteTrackerFactory(estimator).createRouteTracker(initialOccupancies, 5, 7000.0, null);
+
 
 		AlonsoMoraRequest request = Mockito.mock(AlonsoMoraRequest.class);
 		Mockito.when(request.getSize()).thenReturn(1);

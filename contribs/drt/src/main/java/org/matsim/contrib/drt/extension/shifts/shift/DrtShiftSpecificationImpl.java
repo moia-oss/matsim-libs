@@ -11,12 +11,14 @@ public class DrtShiftSpecificationImpl implements DrtShiftSpecification {
 	private final double start;
 	private final double end;
 	private final DrtShiftBreakSpecification shiftBreak;
+	private final String vehicleType;
 
 	private DrtShiftSpecificationImpl(Builder builder) {
 		this.id = builder.id;
 		this.start = builder.start;
 		this.end = builder.end;
 		this.shiftBreak = builder.shiftBreak;
+		this.vehicleType = builder.vehicleType == null ? DrtShift.DEFAULT_VEHICLE_TYPE : builder.vehicleType;
 	}
 
 	@Override
@@ -32,6 +34,11 @@ public class DrtShiftSpecificationImpl implements DrtShiftSpecification {
 	@Override
 	public DrtShiftBreakSpecification getBreak() {
 		return shiftBreak;
+	}
+
+	@Override
+	public String getVehicleType() {
+		return vehicleType;
 	}
 
 	@Override
@@ -57,6 +64,7 @@ public class DrtShiftSpecificationImpl implements DrtShiftSpecification {
 		private double start;
 		private double end;
 		private DrtShiftBreakSpecification shiftBreak;
+		private String vehicleType;
 
 		private Builder() {
 		}
@@ -83,6 +91,10 @@ public class DrtShiftSpecificationImpl implements DrtShiftSpecification {
 
 		public DrtShiftSpecificationImpl build() {
 			return new DrtShiftSpecificationImpl(this);
+		}
+
+		public void vehicleType(String val) {
+			vehicleType = val;
 		}
 	}
 }

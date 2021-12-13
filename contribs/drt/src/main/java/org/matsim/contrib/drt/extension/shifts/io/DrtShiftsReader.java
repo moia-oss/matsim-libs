@@ -22,7 +22,10 @@ public class DrtShiftsReader extends MatsimXmlParser {
     public static final String START_TIME = "start";
     public static final String END_TIME = "end";
 
-    public static final String EARLIEST_BREAK_START_TIME = "earliestStart";
+	public static final String VEHICLE_TYPE = "vehicleType";
+
+
+	public static final String EARLIEST_BREAK_START_TIME = "earliestStart";
     public static final String LATEST_BREAK_END_TIME = "latestEnd";
     public static final String BREAK_DURATION = "duration";
 
@@ -46,6 +49,10 @@ public class DrtShiftsReader extends MatsimXmlParser {
 				builder.id(Id.create( atts.getValue(ID), DrtShift.class ));
 				builder.start(Double.parseDouble(atts.getValue(START_TIME)));
 				builder.end(Double.parseDouble(atts.getValue(END_TIME)));
+				String vehicleType = atts.getValue(VEHICLE_TYPE);
+				if(vehicleType != null) {
+					builder.vehicleType(vehicleType);
+				}
                 currentBuilder = builder;
                 break;
             case BREAK_NAME:

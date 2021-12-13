@@ -26,7 +26,7 @@ import com.google.common.base.Verify;
 /**
  * Default implementation of the "travel" function described by Alonso-Mora et
  * al. See the individual methods for further explanations.
- * 
+ *
  * @author sebhoerl
  */
 public class DefaultAlonsoMoraFunction implements AlonsoMoraFunction {
@@ -45,10 +45,13 @@ public class DefaultAlonsoMoraFunction implements AlonsoMoraFunction {
 	private final double violationOffset;
 	private final boolean preferNonViolation;
 
+	private final RouteTrackerFactory routeTrackerFactory;
+
+
 	public DefaultAlonsoMoraFunction(TravelTimeEstimator travelTimeEstimator, SequenceGeneratorFactory generatorFactory,
 			double stopDuration, boolean allowPickupViolations, boolean allowPickupsWithDropoffViolations,
 			boolean checkDeterminsticTravelTimes, Objective objective, Constraint constraint, double violationFactor,
-			double violationOffset, boolean preferNonViolation) {
+			double violationOffset, boolean preferNonViolation, RouteTrackerFactory routeTrackerFactory) {
 		this.travelTimeEstimator = travelTimeEstimator;
 		this.stopDuration = stopDuration;
 		this.generatorFactory = generatorFactory;
@@ -63,6 +66,7 @@ public class DefaultAlonsoMoraFunction implements AlonsoMoraFunction {
 		this.violationFactor = violationFactor;
 		this.violationOffset = violationOffset;
 		this.preferNonViolation = preferNonViolation;
+		this.routeTrackerFactory = routeTrackerFactory;
 	}
 
 	/**
@@ -87,8 +91,10 @@ public class DefaultAlonsoMoraFunction implements AlonsoMoraFunction {
 		requiredDropoffTimes.put(firstRequest, firstRequest.getLatestDropoffTime());
 		requiredDropoffTimes.put(secondRequest, secondRequest.getLatestDropoffTime());
 
-		RouteTracker tracker = new RouteTracker(travelTimeEstimator, stopDuration, 0, now, Optional.empty(),
-				requiredPickupTimes, requiredDropoffTimes);
+		Map<String, Integer> initialOccupancies = new HashMap<>();
+		initialOccupancies.put(OccupancyInfo.REGULAR, 0);
+		RouteTracker tracker = routeTrackerFactory.createRouteTracker(initialOccupancies, stopDuration, now, null);
+
 
 		while (generator.hasNext()) {
 			List<AlonsoMoraStop> stops = generator.get();
@@ -158,7 +164,7 @@ public class DefaultAlonsoMoraFunction implements AlonsoMoraFunction {
 		 * the constraints. However, we might ignore violations that are caused by
 		 * deteriorating traffic conditions. In that case we set the required values to
 		 * the currently expected pickup and dropoff time.
-		 * 
+		 *
 		 * Note that this assumes that the timing along the stops is updated with
 		 * current traffic conditions *before* this function is called! This is done in
 		 * AlonsoMoraAlgorithm when initializing the vehicle graphs.
@@ -205,9 +211,10 @@ public class DefaultAlonsoMoraFunction implements AlonsoMoraFunction {
 		SequenceGenerator generator = generatorFactory.createGenerator(vehicle, onboardRequests, requests, now);
 
 		// Set up the timing and occupancy tracker
-		RouteTracker tracker = new RouteTracker(travelTimeEstimator, stopDuration,
-				onboardRequests.stream().mapToInt(AlonsoMoraRequest::getSize).sum(), diversion.time,
-				Optional.of(diversion.link), requiredPickupTimes, requiredDropoffTimes);
+		Map<String, Integer> initialOccupancies = new HashMap<>();
+		initialOccupancies.put(OccupancyInfo.REGULAR, onboardRequests.stream().mapToInt(AlonsoMoraRequest::getSize).sum());
+		RouteTracker tracker = routeTrackerFactory.createRouteTracker(initialOccupancies, stopDuration, diversion.time,
+				diversion.link, requiredPickupTimes, requiredDropoffTimes);
 
 		tracker.setDrivingState(vehicle);
 

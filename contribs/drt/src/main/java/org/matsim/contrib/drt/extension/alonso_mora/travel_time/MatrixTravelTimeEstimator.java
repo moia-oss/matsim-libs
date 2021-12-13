@@ -19,12 +19,12 @@ import org.matsim.utils.leastcostpathtree.LeastCostPathTree;
  * and calculates the travel times between all links at a chosen departure time.
  * If the network is not time-varying and no congestion is simulated, this means
  * that the exact travel time is reproduced.
- * 
+ *
  * @author sebhoerl
  */
 public class MatrixTravelTimeEstimator implements TravelTimeEstimator {
 	static public final String TYPE = "Matrix";
-	
+
 	private final List<Integer> id2matrix;
 	private final double[][] matrix;
 
@@ -86,23 +86,22 @@ public class MatrixTravelTimeEstimator implements TravelTimeEstimator {
 
 		Counter counter = new Counter("Calculating travel time matrix ", " of " + nodes.size());
 
-		for (Node originNode : nodes) {
+		nodes.parallelStream().forEach( node -> {
 			LeastCostPathTree tree = new LeastCostPathTree(travelTime,
 					new OnlyTimeDependentTravelDisutility(travelTime));
-			tree.calculate(network, originNode, departureTime);
+			tree.calculate(network, node, departureTime);
 
 			for (var entry : tree.getTree().entrySet()) {
 				double calculatedTravelTime = entry.getValue().getTime() - departureTime;
 				Node destinationNode = network.getNodes().get(entry.getKey());
 
-				int originIndex = id2matrix.get(originNode.getId().index());
+				int originIndex = id2matrix.get(node.getId().index());
 				int destinationIndex = id2matrix.get(destinationNode.getId().index());
 
 				travelTimes[originIndex][destinationIndex] = calculatedTravelTime;
 			}
-
 			counter.incCounter();
-		}
+		});
 
 		return new MatrixTravelTimeEstimator(id2matrix, travelTimes, travelTime);
 	}

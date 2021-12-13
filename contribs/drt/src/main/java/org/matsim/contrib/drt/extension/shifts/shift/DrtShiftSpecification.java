@@ -12,4 +12,6 @@ public interface DrtShiftSpecification extends Identifiable<DrtShift> {
 	double getEndTime();
 
 	DrtShiftBreakSpecification getBreak();
+
+    String getVehicleType();
 }

@@ -7,6 +7,8 @@ import org.matsim.api.core.v01.Identifiable;
  */
 public interface DrtShift extends Identifiable<DrtShift> {
 
+	String DEFAULT_VEHICLE_TYPE = "default";
+
 	double getStartTime();
 
 	double getEndTime();
@@ -20,4 +22,6 @@ public interface DrtShift extends Identifiable<DrtShift> {
 	void start();
 
 	void end();
+
+	String getVehicleType();
 }

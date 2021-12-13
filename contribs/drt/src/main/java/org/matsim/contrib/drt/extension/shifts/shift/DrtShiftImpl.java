@@ -13,15 +13,17 @@ public class DrtShiftImpl implements DrtShift {
 	private double end;
 
 	private DrtShiftBreak shiftBreak;
+	private final String vehicleType;
 
 	private boolean started = false;
 	private boolean ended = false;
 
-	public DrtShiftImpl(Id<DrtShift> id, double start, double end, DrtShiftBreak shiftBreak) {
+	public DrtShiftImpl(Id<DrtShift> id, double start, double end, DrtShiftBreak shiftBreak, String vehicleType) {
 		this.id = id;
 		this.start = start;
 		this.end = end;
 		this.shiftBreak = shiftBreak;
+		this.vehicleType = vehicleType;
 	}
 
 	@Override
@@ -65,6 +67,11 @@ public class DrtShiftImpl implements DrtShift {
 		} else {
 			throw new IllegalStateException("Shift already ended!");
 		}
+	}
+
+	@Override
+	public String getVehicleType() {
+		return vehicleType;
 	}
 
 	@Override

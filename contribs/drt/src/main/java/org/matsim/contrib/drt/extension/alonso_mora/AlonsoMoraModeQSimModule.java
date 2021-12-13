@@ -28,6 +28,7 @@ import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.DefaultAl
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.DefaultAlonsoMoraFunction.MinimumDelay;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.DefaultAlonsoMoraFunction.NoopConstraint;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.DefaultAlonsoMoraFunction.Objective;
+import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.DefaultRouteTrackerFactory;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.sequence.CombinedSequenceGenerator;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.sequence.EuclideanSequenceGenerator;
 import org.matsim.contrib.drt.extension.alonso_mora.algorithm.function.sequence.ExtensiveSequenceGenerator;
@@ -302,7 +303,7 @@ public class AlonsoMoraModeQSimModule extends AbstractDvrpModeQSimModule {
 					drtConfig.getStopDuration(), congestionParameters.getAllowPickupViolations(),
 					congestionParameters.getAllowPickupsWithDropoffViolations(),
 					amConfig.getCheckDeterminsticTravelTimes(), objective, constraint, amConfig.getViolationFactor(),
-					amConfig.getViolationOffset(), amConfig.getPreferNonViolation());
+					amConfig.getViolationOffset(), amConfig.getPreferNonViolation(), new DefaultRouteTrackerFactory(travelTimeEstimator));
 		}));
 
 		bindModal(Objective.class).toProvider(() -> new MinimumDelay());
@@ -366,7 +367,8 @@ public class AlonsoMoraModeQSimModule extends AbstractDvrpModeQSimModule {
 					getter.getModal(QSimScopeForkJoinPoolHolder.class).getPool(), //
 					getter.getModal(TravelTimeEstimator.class), //
 					drtConfig.getStopDuration(), //
-					new AlgorithmSettings(amConfig));
+					new AlgorithmSettings(amConfig),
+					new DefaultRouteTrackerFactory(getter.getModal(TravelTimeEstimator.class)));
 		}));
 
 		bindModal(AlonsoMoraVehicleFactory.class).toInstance(vehicle -> new DefaultAlonsoMoraVehicle(vehicle));
