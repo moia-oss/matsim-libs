@@ -25,6 +25,7 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
 
     private static final String CHARGE_AT_HUB_THRESHOLD = "chargeAtHubThreshold";
     private static final String SHIFT_ASSIGNMENT_BATTERY_THRESHOLD = "shiftAssignmentBatteryThreshold";
+	private static final String LOGGING_INTERVAL = "loggingInterval";
 
 	private static final String BREAK_CHARGER_TYPE = "breakChargerType";
 	private static final String OUT_OF_SHIFT_CHARGER_TYPE = "outOfShiftChargerType";
@@ -44,6 +45,8 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
     private double shiftAssignmentBatteryThreshold = 0.6;
 	private String breakChargerType = ChargerSpecification.DEFAULT_CHARGER_TYPE;
 	private String outOfShiftChargerType = ChargerSpecification.DEFAULT_CHARGER_TYPE;
+
+	private double loggingInterval = 600;
 
 	public ShiftDrtConfigGroup() {
         super(GROUP_NAME);
@@ -67,6 +70,7 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
                 " for shift assignment. values between [0,1)");
 		map.put(BREAK_CHARGER_TYPE, "defines the charger type that should be chosen when charging during shift break or changeover. Defaults to '" + ChargerSpecification.DEFAULT_CHARGER_TYPE + "'");
 		map.put(OUT_OF_SHIFT_CHARGER_TYPE, "defines the charger type that should be chosen when charging inactive vehicles outside of shifts. Defaults to '" + ChargerSpecification.DEFAULT_CHARGER_TYPE + "'");
+		map.put(LOGGING_INTERVAL, "defines the logging interval in [seconds]");
         return map;
     }
 
@@ -113,6 +117,10 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
     @StringSetter( SHIFT_ASSIGNMENT_BATTERY_THRESHOLD )
     public void setShiftAssignmentBatteryThreshold(final double shiftAssignmentBatteryThreshold) {
         this.shiftAssignmentBatteryThreshold = shiftAssignmentBatteryThreshold;
+    }
+    @StringSetter( LOGGING_INTERVAL )
+    public void setLoggingInterval(final double loggingInterval) {
+        this.loggingInterval = loggingInterval;
     }
 
 	@StringSetter( BREAK_CHARGER_TYPE )
@@ -186,5 +194,10 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
 	@StringGetter( OUT_OF_SHIFT_CHARGER_TYPE )
 	public String getOutOfShiftChargerType() {
 		return outOfShiftChargerType;
+	}
+
+	@StringGetter( LOGGING_INTERVAL )
+	public double getLoggingInterval() {
+		return loggingInterval;
 	}
 }
