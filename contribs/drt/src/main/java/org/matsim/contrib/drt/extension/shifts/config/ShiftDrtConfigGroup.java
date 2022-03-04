@@ -14,7 +14,7 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
 
     public static final String GROUP_NAME = "drtShifts";
 
-    private static final String SHIFT_INPUT_FILE = "shiftInputFile";
+	private static final String SHIFT_INPUT_FILE = "shiftInputFile";
     private static final String OPERATION_FACILITY_INPUT_FILE = "operationFacilityInputFile";
 
     private static final String CHANGEOVER_DURATION = "changeoverDuration";
@@ -29,8 +29,10 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
 
 	private static final String BREAK_CHARGER_TYPE = "breakChargerType";
 	private static final String OUT_OF_SHIFT_CHARGER_TYPE = "outOfShiftChargerType";
+	private static final String CHARGE_AT_HUB_INTERVAL = "chargeAtHubInterval";
 
-    private String shiftInputFile;
+
+	private String shiftInputFile;
     private String operationFacilityInputFile;
 
     private double changeoverDuration = 900;
@@ -42,6 +44,7 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
 
 	//electric shifts
     private double chargeAtHubThreshold = 0.5;
+	private double chargeAtHubInterval = 3 * 60;
     private double shiftAssignmentBatteryThreshold = 0.6;
 	private String breakChargerType = ChargerSpecification.DEFAULT_CHARGER_TYPE;
 	private String outOfShiftChargerType = ChargerSpecification.DEFAULT_CHARGER_TYPE;
@@ -66,6 +69,8 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
                 " false if changerover is only allowed at hubs");
         map.put(CHARGE_AT_HUB_THRESHOLD, "defines the battery state of charge threshold at which vehicles will start charging" +
                 " at hubs when not in an active shift. values between [0,1)");
+		map.put(CHARGE_AT_HUB_INTERVAL, "defines the interval at which idle vehicles at operation facilities are checked for whether" +
+				"they can and should start charging. In [seconds]");
         map.put(SHIFT_ASSIGNMENT_BATTERY_THRESHOLD, "defines the minimum battery state of charge threshold at which vehicles are available " +
                 " for shift assignment. values between [0,1)");
 		map.put(BREAK_CHARGER_TYPE, "defines the charger type that should be chosen when charging during shift break or changeover. Defaults to '" + ChargerSpecification.DEFAULT_CHARGER_TYPE + "'");
@@ -127,9 +132,15 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
 	public void setBreakChargerType(String breakChargerType) {
 		this.breakChargerType = breakChargerType;
 	}
+
 	@StringSetter( OUT_OF_SHIFT_CHARGER_TYPE )
 	public void setOutOfShiftChargerType(String outOfShiftChargerType) {
 		this.outOfShiftChargerType = outOfShiftChargerType;
+	}
+
+	@StringSetter( CHARGE_AT_HUB_INTERVAL )
+	public void setChargeAtHubInterval(double interval) {
+		this.chargeAtHubInterval = interval;
 	}
 
     @StringGetter( SHIFT_INPUT_FILE )
@@ -199,5 +210,10 @@ public class ShiftDrtConfigGroup extends ReflectiveConfigGroup {
 	@StringGetter( LOGGING_INTERVAL )
 	public double getLoggingInterval() {
 		return loggingInterval;
+	}
+
+	@StringGetter(CHARGE_AT_HUB_INTERVAL)
+	public double getChargeAtHubInterval() {
+		return chargeAtHubInterval;
 	}
 }

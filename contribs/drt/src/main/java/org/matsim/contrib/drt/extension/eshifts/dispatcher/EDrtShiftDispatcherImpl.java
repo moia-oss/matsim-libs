@@ -139,7 +139,7 @@ public class EDrtShiftDispatcherImpl implements DrtShiftDispatcher {
     }
 
     private void checkChargingAtHub() {
-        if (timer.getTimeOfDay() % (3 * 60) == 0) {
+        if (timer.getTimeOfDay() % (configGroup.getChargeAtHubInterval()) == 0) {
 			for (Queue<ShiftDvrpVehicle> idleVehiclesQueue : idleVehiclesQueues.values()) {
 				for (ShiftDvrpVehicle vehicle : idleVehiclesQueue) {
 					if (vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED) {
