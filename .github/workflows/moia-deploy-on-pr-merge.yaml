@@ -20,6 +20,8 @@ jobs:
         uses: actions/setup-java@v1
         with:
           java-version: 11
+      - name: Set version
+        run:  mvn versions:set -DnewVersion=moia-latest-SNAPSHOT
       - name: Deploy with Maven
         env:
           USERNAME: ${{github.actor}}
