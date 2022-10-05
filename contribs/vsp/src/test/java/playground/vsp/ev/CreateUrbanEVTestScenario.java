@@ -37,9 +37,8 @@ class CreateUrbanEVTestScenario {
 
 	static Scenario createTestScenario(){
 		EvConfigGroup evConfigGroup = new EvConfigGroup();
-		evConfigGroup.setVehiclesFile("this is not important because we use standard matsim vehicles");
-		evConfigGroup.setTimeProfiles(true);
-		evConfigGroup.setChargersFile("chargers.xml");
+		evConfigGroup.timeProfiles = true;
+		evConfigGroup.chargersFile = "chargers.xml";
 
 		//prepare config
 		Config config = ConfigUtils.loadConfig("test/input/playground/vsp/ev/chessboard-config.xml", evConfigGroup);
