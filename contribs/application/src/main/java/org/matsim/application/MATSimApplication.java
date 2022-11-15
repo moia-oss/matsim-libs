@@ -177,7 +177,7 @@ public abstract class MATSimApplication implements Callable<Integer>, CommandLin
 		}
 
 		if (iterations > -1)
-			config.controler().setLastIteration(iterations - 1);
+			config.controler().setLastIteration(iterations);
 
 		if (output != null)
 			config.controler().setOutputDirectory(output.toString());
@@ -311,7 +311,7 @@ public abstract class MATSimApplication implements Callable<Integer>, CommandLin
 	/**
 	 * Modules that are configurable via command line arguments.
 	 */
-	private List<ConfigGroup> getConfigurableModules() {
+	protected List<ConfigGroup> getConfigurableModules() {
 		return Lists.newArrayList(
 				new ControlerConfigGroup(),
 				new GlobalConfigGroup(),
