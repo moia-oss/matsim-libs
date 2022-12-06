@@ -36,12 +36,16 @@ public interface Battery {
 	 */
 	void setCharge(double charge);
 
+	default double getSoc() {
+		return getCharge() / getCapacity();
+	}
+
 	/**
 	 * Changes charge, making sure the charge level does not increase above the battery capacity or decrease below 0.
 	 *
 	 * @param energy change in energy [J], can be negative or positive
 	 */
 	default void changeCharge(double energy) {
-		setCharge(Math.max(0, Math.min(getCharge() + energy, getCapacity())));
+		setCharge(getCharge() + energy);
 	}
 }
