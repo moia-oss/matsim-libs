@@ -217,10 +217,8 @@ public class InsertionDetourTimeCalculator {
 			this.dropoffDetourInfo = dropoffDetourInfo;
 		}
 
-		/**
-		 * @return TOTAL time delay of each stop placed after the dropoff insertion point
-		 * 		(this is the amount of extra time the vehicle will operate if this insertion is applied)
-		 */
+		// TOTAL time delay of each stop placed after the dropoff insertion point
+		// (this is the amount of extra time the vehicle will operate if this insertion is applied)
 		public double getTotalTimeLoss() {
 			return pickupDetourInfo.pickupTimeLoss + dropoffDetourInfo.dropoffTimeLoss;
 		}

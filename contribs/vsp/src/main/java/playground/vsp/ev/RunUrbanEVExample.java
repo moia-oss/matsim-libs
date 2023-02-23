@@ -116,15 +116,11 @@ public class RunUrbanEVExample {
 		//register charging interaction activities for car
 		config.planCalcScore()
 				.addActivityParams(new PlanCalcScoreConfigGroup.ActivityParams(TransportMode.car
-						+ UrbanEVModule.PLUGOUT_INTERACTION).setScoringThisActivityAtAll(false ) );
+						+ UrbanVehicleChargingHandler.PLUGOUT_INTERACTION).setScoringThisActivityAtAll(false));
 		config.planCalcScore()
 				.addActivityParams(new PlanCalcScoreConfigGroup.ActivityParams(
-						TransportMode.car + UrbanEVModule.PLUGIN_INTERACTION).setScoringThisActivityAtAll(
-						false ));
-	}
-
-	public static void prepareScenario( Scenario scenario ) {
-		createAndRegisterPersonalCarAndBikeVehicles( scenario );
+						TransportMode.car + UrbanVehicleChargingHandler.PLUGIN_INTERACTION).setScoringThisActivityAtAll(
+						false));
 	}
 
 	static void createAndRegisterPersonalCarAndBikeVehicles(Scenario scenario) {
