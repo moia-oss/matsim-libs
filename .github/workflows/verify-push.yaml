@@ -104,7 +104,6 @@ jobs:
         working-directory: ${{matrix.module}}
 
       - name: Upload test
-        if: ${{matrix.module == 'contribs/taxi'}}
         uses: actions/upload-artifact@v2
         with:
           name: testFile
