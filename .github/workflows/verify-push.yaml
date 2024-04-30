@@ -97,6 +97,14 @@ jobs:
         if: ${{matrix.module != 'matsim' || steps.detect-changes.outputs.outside-contribs == 'true'}}
         run: mvn install --batch-mode --also-make --projects ${{matrix.module}} -DskipTests -Dsource.skip
 
+      - name: Upload test
+        if: ${{matrix.module == 'taxi'}}
+        uses: actions/upload-artifact@v2
+        with:
+          name: testFile
+          path: contribs/taxi/test/input/org/matsim/contrib/etaxi/run/RunETaxiScenarioIT/testOneTaxi/output_plans.xml.gz
+
+
       - name: Test module
         if: ${{matrix.module != 'matsim' || steps.detect-changes.outputs.outside-contribs == 'true'}}
         run: mvn verify --batch-mode -Dmaven.test.redirectTestOutputToFile -Dmatsim.preferLocalDtds=true --fail-at-end -Dsource.skip
