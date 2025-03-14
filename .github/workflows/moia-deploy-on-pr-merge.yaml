@@ -21,8 +21,20 @@ jobs:
         with:
           java-version: 21
           distribution: 'zulu'
-      - name: Set version
-        run:  mvn versions:set -DnewVersion=moia-latest-SNAPSHOT
+      - name: Set output
+        id: pr
+        run: echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y%m%d-%H%M')" >> $GITHUB_OUTPUT
+
+      - name: Get release version
+        id: releaseVersion
+        run: echo "releaseVersion=moia${{ steps.date.outputs.date }}" >> $GITHUB_OUTPUT
+
+      - name: Set Maven Version
+        run: mvn versions:set -DnewVersion=${{ steps.releaseVersion.outputs.releaseVersion }}
       - name: Deploy with Maven
         env:
           USERNAME: ${{github.actor}}
