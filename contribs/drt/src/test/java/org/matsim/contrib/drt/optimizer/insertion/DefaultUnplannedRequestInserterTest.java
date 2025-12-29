@@ -29,11 +29,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 import org.apache.commons.lang3.mutable.MutableInt;
 import org.junit.jupiter.api.Test;
@@ -278,11 +274,15 @@ public class DefaultUnplannedRequestInserterTest {
 	}
 
 	private DrtRequest request(String id, String fromLinkId, String toLinkId) {
+		Link fromLink = link(fromLinkId);
+		Link toLink = link(toLinkId);
 		return DrtRequest.newBuilder()
 				.id(Id.create(id, Request.class))
 				.passengerIds(List.of(Id.createPersonId(id)))
-				.fromLink(link(fromLinkId))
-				.toLink(link(toLinkId))
+				.fromLink(fromLink)
+				.toLink(toLink)
+				.accessLinkCandidates(Set.of(fromLink))
+				.egressLinkCandidates(Set.of(toLink))
 				.mode(mode)
 				.build();
 	}

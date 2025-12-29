@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
@@ -83,6 +84,8 @@ public class InsertionGeneratorWithChangingCapacitiesTest {
 	private final DrtRequest drtRequestA = DrtRequest.newBuilder()
 			.fromLink(fromLink)
 			.toLink(toLink)
+			.accessLinkCandidates(Set.of(fromLink))
+			.egressLinkCandidates(Set.of(toLink))
 			.passengerIds(List.of(Id.createPersonId("personA")))
 			.load(customLoadType.fromArray(1, 0))
 			.earliestDepartureTime(0)
@@ -96,6 +99,8 @@ public class InsertionGeneratorWithChangingCapacitiesTest {
 	private final DrtRequest drtRequestB = DrtRequest.newBuilder()
 			.fromLink(fromLink)
 			.toLink(toLink)
+			.accessLinkCandidates(Set.of(fromLink))
+			.egressLinkCandidates(Set.of(toLink))
 			.passengerIds(List.of(Id.createPersonId("personB")))
 			.load(customLoadType.fromArray(0, 1))
 			.earliestDepartureTime(0)

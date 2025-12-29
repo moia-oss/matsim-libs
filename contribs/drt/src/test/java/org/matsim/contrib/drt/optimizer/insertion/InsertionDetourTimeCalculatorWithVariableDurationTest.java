@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
@@ -61,8 +62,10 @@ public class InsertionDetourTimeCalculatorWithVariableDurationTest {
 	private final static Link toLink = link("to");
 	private final static IntegerLoadType loadType = new IntegerLoadType("passengers");
 
-	private static final DrtRequest drtRequestInitial = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink).build();
-	private static final DrtRequest drtRequestAdded = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink).build();
+	private static final DrtRequest drtRequestInitial = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink)
+			.accessLinkCandidates(Set.of(fromLink)).egressLinkCandidates(Set.of(toLink)).build();
+	private static final DrtRequest drtRequestAdded = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink)
+			.accessLinkCandidates(Set.of(fromLink)).egressLinkCandidates(Set.of(toLink)).build();
 
 	private static final int STOP_DURATION_INITIAL = 10;
 	private static final int STOP_DURATION_ADDED = 5;

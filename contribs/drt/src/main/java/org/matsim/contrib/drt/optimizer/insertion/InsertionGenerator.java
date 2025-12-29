@@ -21,6 +21,7 @@ package org.matsim.contrib.drt.optimizer.insertion;
 
 import java.util.*;
 
+import org.matsim.api.core.v01.network.Link;
 import org.matsim.contrib.drt.optimizer.StopWaypoint;
 import org.matsim.contrib.drt.optimizer.VehicleEntry;
 import org.matsim.contrib.drt.optimizer.Waypoint;
@@ -92,28 +93,28 @@ public class InsertionGenerator {
 	}
 
 	private static InsertionPoint createPickupInsertion(DrtRequest request, VehicleEntry vehicleEntry, int pickupIdx,
-			boolean followedByDropoff) {
-		var pickupWaypoint = new Waypoint.Pickup(request);
+			boolean followedByDropoff, Link accessLink, Link egressLink) {
+		var pickupWaypoint = new Waypoint.Pickup(request, accessLink);
 		var pickupPreviousWaypoint = vehicleEntry.getWaypoint(pickupIdx);
 		var pickupNextLink = followedByDropoff ?
-				new Waypoint.Dropoff(request) :
+				new Waypoint.Dropoff(request, egressLink) :
 				vehicleEntry.getWaypoint(pickupIdx + 1);
 		return new InsertionPoint(pickupIdx, pickupPreviousWaypoint, pickupWaypoint, pickupNextLink);
 	}
 
 	private static InsertionPoint createDropoffInsertion(DrtRequest request, VehicleEntry vehicleEntry,
-			InsertionPoint pickup, int dropoffIdx) {
+			InsertionPoint pickup, int dropoffIdx, Link egressLink) {
 		var dropoffNextLink = vehicleEntry.getWaypoint(dropoffIdx + 1);
 
 		if (pickup.index == dropoffIdx) {
-			var dropoffPreviousLink = pickup.newWaypoint;
+			var dropoffPreviousWaypoint = pickup.newWaypoint;
 			var dropoffWaypoint = (Waypoint.Dropoff)pickup.nextWaypoint;
-			return new InsertionPoint(dropoffIdx, dropoffPreviousLink, dropoffWaypoint, dropoffNextLink);
+			return new InsertionPoint(dropoffIdx, dropoffPreviousWaypoint, dropoffWaypoint, dropoffNextLink);
 		}
 
-		var dropoffPreviousLink = vehicleEntry.getWaypoint(dropoffIdx);
-		var dropoffWaypoint = new Waypoint.Dropoff(request);
-		return new InsertionPoint(dropoffIdx, dropoffPreviousLink, dropoffWaypoint, dropoffNextLink);
+		var dropoffPreviousWaypoint = vehicleEntry.getWaypoint(dropoffIdx);
+		var dropoffWaypoint = new Waypoint.Dropoff(request, egressLink);
+		return new InsertionPoint(dropoffIdx, dropoffPreviousWaypoint, dropoffWaypoint, dropoffNextLink);
 	}
 
 	public static class Insertion {
@@ -129,11 +130,18 @@ public class InsertionGenerator {
 			this.insertedLoad = insertedLoad;
 		}
 
-		public Insertion(DrtRequest request, VehicleEntry vehicleEntry, int pickupIdx, int dropoffIdx) {
+		public Insertion(DrtRequest request, VehicleEntry vehicleEntry, int pickupIdx, int dropoffIdx, Link accessLink, Link egressLink) {
 			this.vehicleEntry = vehicleEntry;
-			pickup = createPickupInsertion(request, vehicleEntry, pickupIdx, pickupIdx == dropoffIdx);
-			dropoff = createDropoffInsertion(request, vehicleEntry, pickup, dropoffIdx);
+			pickup = createPickupInsertion(request, vehicleEntry, pickupIdx, pickupIdx == dropoffIdx, accessLink, egressLink);
+			dropoff = createDropoffInsertion(request, vehicleEntry, pickup, dropoffIdx, egressLink);
 			this.insertedLoad = request.getLoad();
+		}
+
+		/**
+		 * Package-private for testing.
+		 */
+		Insertion(DrtRequest request, VehicleEntry vehicleEntry, int pickupIdx, int dropoffIdx) {
+			this(request, vehicleEntry, pickupIdx, dropoffIdx, request.getFromLink(), request.getToLink());
 		}
 
 		@Override
@@ -202,27 +210,36 @@ public class InsertionGenerator {
 			allowed &= drtRequest.getEarliestStartTime() <= nextStop.getLatestDepartureTime();
 
 			if (allowed) {
-				if (drtRequest.getFromLink() != nextStop.getTask().getLink()) {// next stop at different link
-					generateDropoffInsertions(drtRequest, vEntry, i, insertions);
-				} else {
-					// this is the case where we insert a new request *before* a stop that is
-					// on the same link as the pickup link. Initially, the reasoning was that the
-					// new request will be merged *into* the existing task if all constraints hold,
-					// i.e. the request will be appended. So only the insertion *after* this task is
-					// necessary to evaluate. However, with prebooking, the situation is different:
-					// if the next task is prebooked (in the future), we may want to insert another
-					// task here on the same link (maybe a pickup followed by its dropoff) but much
-					// earlier. In that case it is actually a valid insertion.
+				for (Link accessLinkCandidate : drtRequest.getAccessLinkCandidates()) {
+					for (Link egressLinkCandidate : drtRequest.getEgressLinkCandidates()) {
+						if(accessLinkCandidate.equals(egressLinkCandidate)) {
+							continue;
+						}
 
-					boolean viableSameLink = vEntry.getPrecedingStayTime(i) > 0.0;
-					if (viableSameLink && drtRequest.getEarliestStartTime() < nextStop.getArrivalTime()) {
-						// the new request wants to depart before the start of the next stop, which may
-						// be a viable insertion. Note that if the requested wanted to depart after the
-						// start of the next stop, but before its end, this is a special case that is
-						// covered further downstream as a special case of merging the pickup into the
-						// existing stop task.
+						StopWaypoint nextStop1 = nextStop(vEntry, i);
+						if (accessLinkCandidate != nextStop1.getTask().getLink()) {// next stop at different link
+							generateDropoffInsertions(drtRequest, vEntry, i, insertions, accessLinkCandidate, egressLinkCandidate);
+						} else {
+							// this is the case where we insert a new request *before* a stop that is
+							// on the same link as the pickup link. Initially, the reasoning was that the
+							// new request will be merged *into* the existing task if all constraints hold,
+							// i.e. the request will be appended. So only the insertion *after* this task is
+							// necessary to evaluate. However, with prebooking, the situation is different:
+							// if the next task is prebooked (in the future), we may want to insert another
+							// task here on the same link (maybe a pickup followed by its dropoff) but much
+							// earlier. In that case it is actually a valid insertion.
 
-						generateDropoffInsertions(drtRequest, vEntry, i, insertions);
+							boolean viableSameLink = vEntry.getPrecedingStayTime(i) > 0.0;
+							if (viableSameLink && drtRequest.getEarliestStartTime() < nextStop1.getArrivalTime()) {
+								// the new request wants to depart before the start of the next stop, which may
+								// be a viable insertion. Note that if the requested wanted to depart after the
+								// start of the next stop, but before its end, this is a special case that is
+								// covered further downstream as a special case of merging the pickup into the
+								// existing stop task.
+
+								generateDropoffInsertions(drtRequest, vEntry, i, insertions, accessLinkCandidate, egressLinkCandidate);
+							}
+						}
 					}
 				}
 			}
@@ -237,26 +254,35 @@ public class InsertionGenerator {
 
 		// here we still have to check if the load of the request is compatible with the last vehicle capacity
 		if(drtRequest.getLoad().fitsIn(vehicleCapacity)) {
-			generateDropoffInsertions(drtRequest, vEntry, stopCount, insertions);// at/after last stop
+			for (Link accessLinkCandidate : drtRequest.getAccessLinkCandidates()) {
+				for (Link egressLinkCandidate : drtRequest.getEgressLinkCandidates()) {
+					if(accessLinkCandidate.equals(egressLinkCandidate)) {
+						continue;
+					}
+					generateDropoffInsertions(drtRequest, vEntry, stopCount, insertions, accessLinkCandidate, egressLinkCandidate);// at/after last stop
+				}
+			}
 		}
 
 		return insertions;
 	}
 
+
 	private void generateDropoffInsertions(DrtRequest request, VehicleEntry vEntry, int i,
-			List<InsertionWithDetourData> insertions) {
-		var pickupInsertion = createPickupInsertion(request, vEntry, i, true);
+										   List<InsertionWithDetourData> insertions, Link accessLinkCandidate, Link egressLinkCandidate) {
+
+		var pickupInsertion = createPickupInsertion(request, vEntry, i, true, accessLinkCandidate, egressLinkCandidate);
 		double toPickupDepartureTime = pickupInsertion.previousWaypoint.getDepartureTime();
 		double toPickupTT = detourTimeEstimator.estimateTime(pickupInsertion.previousWaypoint.getLink(),
-				request.getFromLink(), toPickupDepartureTime);
+				accessLinkCandidate, toPickupDepartureTime);
 		double earliestPickupStartTime = Math.max(toPickupDepartureTime + toPickupTT, request.getEarliestStartTime());
-		double fromPickupTT = detourTimeEstimator.estimateTime(request.getFromLink(),
+		double fromPickupTT = detourTimeEstimator.estimateTime(accessLinkCandidate,
 				pickupInsertion.nextWaypoint.getLink(),
 				earliestPickupStartTime); //TODO stopDuration not included
 		var pickupDetourInfo = detourTimeCalculator.calcPickupDetourInfo(vEntry, pickupInsertion, toPickupTT,
 				fromPickupTT, true, request);
 
-		if (i == 0 && !checkStartSlack(vEntry, request, pickupDetourInfo)) {
+		if (i == 0 && !checkStartSlack(vEntry, request, pickupDetourInfo, accessLinkCandidate)) {
 			// Inserting at schedule start and extending an ongoing stop task further than allowed
 			return;
 		}
@@ -266,12 +292,12 @@ public class InsertionGenerator {
 		if (vEntry.getSlackTime(i) >= pickupDetourInfo.pickupTimeLoss) {
 			// insertion: i -> pickup -> dropoff -> i+1 (only if time slack allows)
 			int j = i;
-			if (i == stopCount || request.getToLink() != nextStop(vEntry, j).getTask().getLink()) {
+			if (i == stopCount || egressLinkCandidate != nextStop(vEntry, j).getTask().getLink()) {
 				// next stop at different link
 				// otherwise, do not evaluate insertion _before_stop j, evaluate only insertion _after_ stop j
 				addInsertion(insertions,
 						createInsertionWithDetourData(request, vEntry, pickupInsertion, fromPickupTT, pickupDetourInfo,
-								j));
+								j, egressLinkCandidate));
 			} else {
 				// special case: inserting dropoff before prebooked task on the same link
 				// see the reasoning in generateInsertions
@@ -280,7 +306,7 @@ public class InsertionGenerator {
 				if (viableSameLink && earliestPickupStartTime + fromPickupTT < nextStop(vEntry, j).getArrivalTime()) {
 					addInsertion(insertions,
 							createInsertionWithDetourData(request, vEntry, pickupInsertion, fromPickupTT, pickupDetourInfo,
-									j));
+									j, egressLinkCandidate));
 				}
 			}
 		}
@@ -291,8 +317,8 @@ public class InsertionGenerator {
 		}
 
 		//calculate it once for all j > i
-		pickupInsertion = createPickupInsertion(request, vEntry, i, false);
-		fromPickupTT = detourTimeEstimator.estimateTime(request.getFromLink(), pickupInsertion.nextWaypoint.getLink(),
+		pickupInsertion = createPickupInsertion(request, vEntry, i, false, accessLinkCandidate, egressLinkCandidate);
+		fromPickupTT = detourTimeEstimator.estimateTime(accessLinkCandidate, pickupInsertion.nextWaypoint.getLink(),
 				earliestPickupStartTime); //TODO stopDuration not included
 		pickupDetourInfo = detourTimeCalculator.calcPickupDetourInfo(vEntry, pickupInsertion, toPickupTT, fromPickupTT,
 				false, request);
@@ -314,21 +340,21 @@ public class InsertionGenerator {
 			}
 
 			if (!request.getLoad().fitsIn(capacity) || !currentStop.getOutgoingOccupancy().add(request.getLoad()).fitsIn(capacity)) {
-				if (request.getToLink() == currentStop.getTask().getLink()) {
+				if (egressLinkCandidate == currentStop.getTask().getLink()) {
 					//special case -- we can insert dropoff exactly at node j
 					addInsertion(insertions,
 							createInsertionWithDetourData(request, vEntry, pickupInsertion, fromPickupTT,
-									pickupDetourInfo, j));
+									pickupDetourInfo, j, egressLinkCandidate));
 				}
 
 				return;// stop iterating -- cannot insert dropoff after node j
 			}
 
-			if (request.getToLink() != nextStop(vEntry, j).getTask().getLink()) {// next stop at different link
+			if (egressLinkCandidate != nextStop(vEntry, j).getTask().getLink()) {// next stop at different link
 				//do not evaluate insertion _before_stop j, evaluate only insertion _after_ stop j
 				addInsertion(insertions,
 						createInsertionWithDetourData(request, vEntry, pickupInsertion, fromPickupTT, pickupDetourInfo,
-								j));
+								j, egressLinkCandidate));
 			} else {
 				// special case: inserting dropoff before prebooked task on the same link
 				// see the reasoning in generateInsertions
@@ -337,7 +363,7 @@ public class InsertionGenerator {
 				if (viableSameLink && earliestPickupStartTime + fromPickupTT < nextStop(vEntry, j).getArrivalTime()) {
 					addInsertion(insertions,
 							createInsertionWithDetourData(request, vEntry, pickupInsertion, fromPickupTT, pickupDetourInfo,
-									j));
+									j, egressLinkCandidate));
 				}
 			}
 		}
@@ -351,7 +377,7 @@ public class InsertionGenerator {
 		if(request.getLoad().fitsIn(capacity)) {
 			addInsertion(insertions,
 				createInsertionWithDetourData(request, vEntry, pickupInsertion, fromPickupTT, pickupDetourInfo,
-					stopCount));
+					stopCount, egressLinkCandidate));
 		}
 	}
 
@@ -369,7 +395,7 @@ public class InsertionGenerator {
 		return entry.stops.get(insertionIdx);
 	}
 
-	private boolean checkStartSlack(VehicleEntry vEntry, DrtRequest request, PickupDetourInfo pickupDetourInfo) {
+	private boolean checkStartSlack(VehicleEntry vEntry, DrtRequest request, PickupDetourInfo pickupDetourInfo, Link accessLinkCandidate) {
 		if (vEntry.start.task.isEmpty()) {
 			return true;
 		}
@@ -382,7 +408,7 @@ public class InsertionGenerator {
 
 		DrtStopTask stopTask = (DrtStopTask) startTask;
 
-		if (stopTask.getLink() != request.getFromLink()) {
+		if (stopTask.getLink() != accessLinkCandidate) {
 			return true;
 		}
 
@@ -403,8 +429,9 @@ public class InsertionGenerator {
 	}
 
 	private InsertionWithDetourData createInsertionWithDetourData(DrtRequest request, VehicleEntry vehicleEntry,
-			InsertionPoint pickupInsertion, double fromPickupTT, PickupDetourInfo pickupDetourInfo, int dropoffIdx) {
-		var dropoffInsertion = createDropoffInsertion(request, vehicleEntry, pickupInsertion, dropoffIdx);
+			InsertionPoint pickupInsertion, double fromPickupTT, PickupDetourInfo pickupDetourInfo, int dropoffIdx,
+																  Link egressLinkCandidate) {
+		var dropoffInsertion = createDropoffInsertion(request, vehicleEntry, pickupInsertion, dropoffIdx, egressLinkCandidate);
 		var insertion = new Insertion(vehicleEntry, pickupInsertion, dropoffInsertion, request.getLoad());
 
 		double toDropoffDepartureTime = pickupInsertion.index == dropoffIdx ?
@@ -412,11 +439,11 @@ public class InsertionGenerator {
 				dropoffInsertion.previousWaypoint.getDepartureTime() + pickupDetourInfo.pickupTimeLoss;
 		double toDropoffTT = pickupInsertion.index == dropoffIdx ?
 				fromPickupTT :
-				detourTimeEstimator.estimateTime(dropoffInsertion.previousWaypoint.getLink(), request.getToLink(),
+				detourTimeEstimator.estimateTime(dropoffInsertion.previousWaypoint.getLink(), egressLinkCandidate,
 						toDropoffDepartureTime);
 		double fromDropoffTT = dropoffIdx == vehicleEntry.stops.size() ?
 				0 :
-				detourTimeEstimator.estimateTime(request.getToLink(), dropoffInsertion.nextWaypoint.getLink(),
+				detourTimeEstimator.estimateTime(egressLinkCandidate, dropoffInsertion.nextWaypoint.getLink(),
 						toDropoffDepartureTime + toDropoffTT); //TODO stopDuration not included
 
 		var dropoffDetourInfo = detourTimeCalculator.calcDropoffDetourInfo(insertion, toDropoffTT, fromDropoffTT,

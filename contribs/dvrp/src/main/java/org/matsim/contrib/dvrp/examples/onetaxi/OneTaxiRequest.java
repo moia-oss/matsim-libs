@@ -22,7 +22,9 @@ package org.matsim.contrib.dvrp.examples.onetaxi;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
+import com.google.common.collect.ImmutableSet;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Link;
@@ -99,6 +101,16 @@ public final class OneTaxiRequest implements PassengerRequest {
 	@Override
 	public DvrpLoad getLoad() {
 		return this.load;
+	}
+
+	@Override
+	public Set<Link> getAccessLinkCandidates() {
+		return ImmutableSet.of(fromLink);
+	}
+
+	@Override
+	public Set<Link> getEgressLinkCandidates() {
+		return ImmutableSet.of(toLink);
 	}
 
 	public static final class OneTaxiRequestCreator implements PassengerRequestCreator {

@@ -22,18 +22,12 @@ package org.matsim.contrib.drt.optimizer;
 
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.stream.DoubleStream;
 
 import jakarta.annotation.Nullable;
 
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
 import org.matsim.contrib.drt.passenger.DrtRequest;
-import org.matsim.contrib.drt.schedule.DrtStopTask;
-import org.matsim.contrib.drt.schedule.DrtCapacityChangeTask;
 import org.matsim.contrib.dvrp.load.DvrpLoad;
-import org.matsim.contrib.dvrp.load.DvrpLoadType;
-import org.matsim.contrib.dvrp.schedule.CapacityChangeTask;
 import org.matsim.contrib.dvrp.schedule.Task;
 import org.matsim.core.utils.misc.OptionalTime;
 
@@ -143,14 +137,16 @@ public interface Waypoint {
 
 	class Pickup implements Waypoint {
 		public final DrtRequest request;
+		private final Link accessLink;
 
-		public Pickup(DrtRequest request) {
+		public Pickup(DrtRequest request, Link accessLink) {
 			this.request = request;
+			this.accessLink = accessLink;
 		}
 
 		@Override
 		public Link getLink() {
-			return request.getFromLink();
+			return accessLink;
 		}
 
 		@Override
@@ -176,14 +172,16 @@ public interface Waypoint {
 
 	class Dropoff implements Waypoint {
 		public final DrtRequest request;
+		private final Link egressLink;
 
-		public Dropoff(DrtRequest request) {
+		public Dropoff(DrtRequest request, Link egressLink) {
 			this.request = request;
+			this.egressLink = egressLink;
 		}
 
 		@Override
 		public Link getLink() {
-			return request.getToLink();
+			return egressLink;
 		}
 
 		@Override

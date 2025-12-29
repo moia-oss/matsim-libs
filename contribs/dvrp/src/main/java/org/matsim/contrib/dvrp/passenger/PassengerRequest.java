@@ -26,6 +26,7 @@ import org.matsim.contrib.dvrp.load.DvrpLoad;
 import org.matsim.contrib.dvrp.optimizer.Request;
 
 import java.util.List;
+import java.util.Set;
 
 public interface PassengerRequest extends Request {
 	/**
@@ -49,4 +50,9 @@ public interface PassengerRequest extends Request {
 	String getMode();
 
 	DvrpLoad getLoad();
+
+	Set<Link> getAccessLinkCandidates();
+
+	Set<Link> getEgressLinkCandidates();
+
 }

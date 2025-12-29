@@ -46,6 +46,8 @@ import org.matsim.testcases.fakes.FakeLink;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.Set;
+
 /**
  * @author Michal Maciejewski (michalm)
  */
@@ -66,6 +68,8 @@ public class InsertionCostCalculatorTest {
 					true
 					)
 			)
+			.accessLinkCandidates(Set.of(fromLink))
+			.egressLinkCandidates(Set.of(toLink))
 			.build();
 
 	private final IntegerLoadType loadType = new IntegerLoadType("passengers");

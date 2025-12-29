@@ -36,6 +36,7 @@ import org.matsim.contrib.dvrp.passenger.PassengerRequestCreator;
 import org.matsim.core.api.experimental.events.EventsManager;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * @author michalm
@@ -112,6 +113,8 @@ public class DrtRequestCreator implements PassengerRequestCreator {
 				.constraints(consolidatedConstrains)
 				.submissionTime(submissionTime)
 				.load(load)
+				.accessLinkCandidates(Set.of(fromLink))
+				.egressLinkCandidates(Set.of(toLink))
 				.build();
 
 		log.debug(drtRoute);

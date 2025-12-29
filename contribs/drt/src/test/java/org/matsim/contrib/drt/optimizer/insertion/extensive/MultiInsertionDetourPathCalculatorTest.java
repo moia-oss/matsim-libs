@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -64,6 +65,8 @@ public class MultiInsertionDetourPathCalculatorTest {
 	private final DrtRequest request = DrtRequest.newBuilder()
 			.fromLink(pickupLink)
 			.toLink(dropoffLink)
+			.accessLinkCandidates(Set.of(pickupLink))
+			.egressLinkCandidates(Set.of(dropoffLink))
 			.earliestDepartureTime(100)
 			.constraints(
 					new DrtRouteConstraints(
@@ -94,8 +97,8 @@ public class MultiInsertionDetourPathCalculatorTest {
 		var pathToDropoff = mockCalcPathData(dropoffLink, beforeDropoffLink, request.getLatestArrivalTime(), false, 33);
 		var pathFromDropoff = mockCalcPathData(dropoffLink, afterDropoffLink, request.getLatestArrivalTime(), true, 44);
 
-		var pickup = insertionPoint(waypoint(beforePickupLink), waypoint(afterPickupLink));
-		var dropoff = insertionPoint(waypoint(beforeDropoffLink), waypoint(afterDropoffLink));
+		var pickup = insertionPoint(waypoint(beforePickupLink), new Waypoint.Pickup(request, pickupLink), waypoint(afterPickupLink));
+		var dropoff = insertionPoint(waypoint(beforeDropoffLink), new Waypoint.Dropoff(request, dropoffLink), waypoint(afterDropoffLink));
 		var insertion = new InsertionGenerator.Insertion(null, pickup, dropoff, loadType.fromInt(1));
 
 		var detourData = detourPathCalculator.calculatePaths(request, List.of(insertion));
@@ -114,8 +117,8 @@ public class MultiInsertionDetourPathCalculatorTest {
 		var pathFromPickup = mockCalcPathData(pickupLink, dropoffLink, request.getEarliestStartTime(), true, 22);
 
 		//use specific class of waypoint to allow for detecting the special case
-		var pickup = insertionPoint(waypoint(beforePickupLink), waypoint(dropoffLink, Waypoint.Dropoff.class));
-		var dropoff = insertionPoint(waypoint(pickupLink, Waypoint.Pickup.class),
+		var pickup = insertionPoint(waypoint(beforePickupLink), new Waypoint.Pickup(request, pickupLink), new Waypoint.Dropoff(request, dropoffLink));
+		var dropoff = insertionPoint(new Waypoint.Pickup(request, pickupLink), new Waypoint.Dropoff(request, dropoffLink),
 				waypoint(dropoffLink, Waypoint.End.class));
 		var insertion = new InsertionGenerator.Insertion(null, pickup, dropoff, loadType.fromInt(1));
 
@@ -138,8 +141,8 @@ public class MultiInsertionDetourPathCalculatorTest {
 		when(pathSearch.calcPathDataMap(eq(dropoffLink), eqSingleLinkCollection(dropoffLink),
 				eq(request.getLatestArrivalTime()), anyBoolean())).thenReturn(Map.of(dropoffLink, PathData.EMPTY));
 
-		var pickup = insertionPoint(waypoint(pickupLink), waypoint(pickupLink));
-		var dropoff = insertionPoint(waypoint(dropoffLink), waypoint(dropoffLink));
+		var pickup = insertionPoint(waypoint(pickupLink), new Waypoint.Pickup(request, pickupLink), waypoint(pickupLink));
+		var dropoff = insertionPoint(waypoint(dropoffLink), new Waypoint.Dropoff(request, dropoffLink), waypoint(dropoffLink));
 		var insertion = new InsertionGenerator.Insertion(null, pickup, dropoff, loadType.fromInt(1));
 
 		var detourData = detourPathCalculator.calculatePaths(request, List.of(insertion));
@@ -174,8 +177,8 @@ public class MultiInsertionDetourPathCalculatorTest {
 		return new FakeNode(Id.createNodeId(id));
 	}
 
-	private InsertionGenerator.InsertionPoint insertionPoint(Waypoint beforeWaypoint, Waypoint afterWaypoint) {
-		return new InsertionGenerator.InsertionPoint(-1, beforeWaypoint, null, afterWaypoint);
+	private InsertionGenerator.InsertionPoint insertionPoint(Waypoint beforeWaypoint, Waypoint newWaypoint, Waypoint afterWaypoint) {
+		return new InsertionGenerator.InsertionPoint(-1, beforeWaypoint, newWaypoint, afterWaypoint);
 	}
 
 	private Waypoint waypoint(Link afterLink) {

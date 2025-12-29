@@ -207,7 +207,7 @@ public class DefaultRequestInsertionSchedulerTest {
                                               InsertionWithDetourData.InsertionDetourData detour,
                                               DrtRequest drtRequest, InsertionDetourTimeCalculator.DetourTimeInfo detourTimeInfo) {
         return new InsertionWithDetourData(
-                new InsertionGenerator.Insertion(drtRequest, entry, pickupIdx, dropoffIdx),
+                new InsertionGenerator.Insertion(drtRequest, entry, pickupIdx, dropoffIdx, drtRequest.getFromLink(), drtRequest.getToLink()),
                 detour,
                 detourTimeInfo
         );
@@ -247,6 +247,8 @@ public class DefaultRequestInsertionSchedulerTest {
                 )
                 .fromLink(fromLink)
                 .toLink(toLink)
+                .accessLinkCandidates(Set.of(fromLink))
+                .egressLinkCandidates(Set.of(toLink))
                 .mode(mode)
                 .build();
     }

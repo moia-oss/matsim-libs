@@ -23,12 +23,14 @@ package org.matsim.contrib.drt.optimizer.insertion.extensive;
 import static org.matsim.contrib.drt.optimizer.insertion.InsertionGenerator.Insertion;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import jakarta.annotation.Nullable;
@@ -93,10 +95,17 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 	DetourPathDataCache calculatePaths(DrtRequest drtRequest, List<Insertion> filteredInsertions) {
 		// with vehicle insertion filtering -- pathsToPickup is the most computationally demanding task, while
 		// pathsFromDropoff is the least demanding one
-		var pathsToPickupFuture = executorService.submit(() -> calcPathsToPickup(drtRequest, filteredInsertions));
-		var pathsFromPickupFuture = executorService.submit(() -> calcPathsFromPickup(drtRequest, filteredInsertions));
-		var pathsToDropoffFuture = executorService.submit(() -> calcPathsToDropoff(drtRequest, filteredInsertions));
-		var pathsFromDropoffFuture = executorService.submit(() -> calcPathsFromDropoff(drtRequest, filteredInsertions));
+
+		// Group insertions by pickup and dropoff links for efficient path calculation
+		Map<Link, List<Insertion>> insertionsByPickupLink = filteredInsertions.stream()
+				.collect(Collectors.groupingBy(insertion -> insertion.pickup.newWaypoint.getLink()));
+		Map<Link, List<Insertion>> insertionsByDropoffLink = filteredInsertions.stream()
+				.collect(Collectors.groupingBy(insertion -> insertion.dropoff.newWaypoint.getLink()));
+
+		var pathsToPickupFuture = executorService.submit(() -> calcPathsToPickup(drtRequest, insertionsByPickupLink));
+		var pathsFromPickupFuture = executorService.submit(() -> calcPathsFromPickup(drtRequest, insertionsByPickupLink));
+		var pathsToDropoffFuture = executorService.submit(() -> calcPathsToDropoff(drtRequest, insertionsByDropoffLink));
+		var pathsFromDropoffFuture = executorService.submit(() -> calcPathsFromDropoff(drtRequest, insertionsByDropoffLink));
 
 		try {
 			return new DetourPathDataCache(pathsToPickupFuture.get(), pathsFromPickupFuture.get(),
@@ -106,38 +115,74 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 		}
 	}
 
-	private Map<Link, PathData> calcPathsToPickup(DrtRequest drtRequest, List<Insertion> filteredInsertions) {
-		// calc backward dijkstra from pickup to ends of selected stops + starts
+	private Map<Link, Map<Link, PathData>> calcPathsToPickup(DrtRequest drtRequest, Map<Link, List<Insertion>> insertionsByPickupLink) {
+		// For each unique pickup link, calc backward dijkstra to ends of selected stops + starts
 		double earliestPickupTime = drtRequest.getEarliestStartTime(); // optimistic
-		Collection<Link> toLinks = getDetourLinks(filteredInsertions.stream(),
-				insertion -> insertion.pickup.previousWaypoint.getLink());
-		return toPickupPathSearch.calcPathDataMap(drtRequest.getFromLink(), toLinks, earliestPickupTime, false);
+
+		Map<Link, Map<Link, PathData>> result = new HashMap<>();
+		for (Map.Entry<Link, List<Insertion>> entry : insertionsByPickupLink.entrySet()) {
+			Link pickupLink = entry.getKey();
+			List<Insertion> insertions = entry.getValue();
+
+			Collection<Link> toLinks = getDetourLinks(insertions.stream(),
+					insertion -> insertion.pickup.previousWaypoint.getLink());
+			Map<Link, PathData> pathsForPickupLink = toPickupPathSearch.calcPathDataMap(pickupLink, toLinks, earliestPickupTime, false);
+			result.put(pickupLink, pathsForPickupLink);
+		}
+		return result;
 	}
 
-	private Map<Link, PathData> calcPathsFromPickup(DrtRequest drtRequest, List<Insertion> filteredInsertions) {
-		// calc forward dijkstra from pickup to beginnings of selected stops + dropoff
+	private Map<Link, Map<Link, PathData>> calcPathsFromPickup(DrtRequest drtRequest, Map<Link, List<Insertion>> insertionsByPickupLink) {
+		// For each unique pickup link, calc forward dijkstra to beginnings of selected stops + dropoff
 		double earliestPickupTime = drtRequest.getEarliestStartTime(); // optimistic
-		Collection<Link> toLinks = getDetourLinks(filteredInsertions.stream(),
-				insertion -> insertion.pickup.nextWaypoint.getLink());
-		return fromPickupPathSearch.calcPathDataMap(drtRequest.getFromLink(), toLinks, earliestPickupTime, true);
+
+		Map<Link, Map<Link, PathData>> result = new HashMap<>();
+		for (Map.Entry<Link, List<Insertion>> entry : insertionsByPickupLink.entrySet()) {
+			Link pickupLink = entry.getKey();
+			List<Insertion> insertions = entry.getValue();
+
+			Collection<Link> toLinks = getDetourLinks(insertions.stream(),
+					insertion -> insertion.pickup.nextWaypoint.getLink());
+			Map<Link, PathData> pathsForPickupLink = fromPickupPathSearch.calcPathDataMap(pickupLink, toLinks, earliestPickupTime, true);
+			result.put(pickupLink, pathsForPickupLink);
+		}
+		return result;
 	}
 
-	private Map<Link, PathData> calcPathsToDropoff(DrtRequest drtRequest, List<Insertion> filteredInsertions) {
-		// calc backward dijkstra from dropoff to ends of selected stops
+	private Map<Link, Map<Link, PathData>> calcPathsToDropoff(DrtRequest drtRequest, Map<Link, List<Insertion>> insertionsByDropoffLink) {
+		// For each unique dropoff link, calc backward dijkstra to ends of selected stops
 		double latestDropoffTime = drtRequest.getLatestArrivalTime(); // pessimistic
-		Collection<Link> toLinks = getDetourLinks(filteredInsertions.stream()
-						.filter(insertion -> !(insertion.dropoff.previousWaypoint instanceof Waypoint.Pickup)),
-				insertion -> insertion.dropoff.previousWaypoint.getLink());
-		return toDropoffPathSearch.calcPathDataMap(drtRequest.getToLink(), toLinks, latestDropoffTime, false);
+
+		Map<Link, Map<Link, PathData>> result = new HashMap<>();
+		for (Map.Entry<Link, List<Insertion>> entry : insertionsByDropoffLink.entrySet()) {
+			Link dropoffLink = entry.getKey();
+			List<Insertion> insertions = entry.getValue();
+
+			Collection<Link> toLinks = getDetourLinks(insertions.stream()
+							.filter(insertion -> !(insertion.dropoff.previousWaypoint instanceof Waypoint.Pickup)),
+					insertion -> insertion.dropoff.previousWaypoint.getLink());
+			Map<Link, PathData> pathsForDropoffLink = toDropoffPathSearch.calcPathDataMap(dropoffLink, toLinks, latestDropoffTime, false);
+			result.put(dropoffLink, pathsForDropoffLink);
+		}
+		return result;
 	}
 
-	private Map<Link, PathData> calcPathsFromDropoff(DrtRequest drtRequest, List<Insertion> filteredInsertions) {
-		// calc forward dijkstra from dropoff to beginnings of selected stops
+	private Map<Link, Map<Link, PathData>> calcPathsFromDropoff(DrtRequest drtRequest, Map<Link, List<Insertion>> insertionsByDropoffLink) {
+		// For each unique dropoff link, calc forward dijkstra to beginnings of selected stops
 		double latestDropoffTime = drtRequest.getLatestArrivalTime(); // pessimistic
-		Collection<Link> toLinks = getDetourLinks(filteredInsertions.stream()
-						.filter(insertion -> !(insertion.dropoff.nextWaypoint instanceof Waypoint.End)),
-				insertion -> insertion.dropoff.nextWaypoint.getLink());
-		return fromDropoffPathSearch.calcPathDataMap(drtRequest.getToLink(), toLinks, latestDropoffTime, true);
+
+		Map<Link, Map<Link, PathData>> result = new HashMap<>();
+		for (Map.Entry<Link, List<Insertion>> entry : insertionsByDropoffLink.entrySet()) {
+			Link dropoffLink = entry.getKey();
+			List<Insertion> insertions = entry.getValue();
+
+			Collection<Link> toLinks = getDetourLinks(insertions.stream()
+							.filter(insertion -> !(insertion.dropoff.nextWaypoint instanceof Waypoint.End)),
+					insertion -> insertion.dropoff.nextWaypoint.getLink());
+			Map<Link, PathData> pathsForDropoffLink = fromDropoffPathSearch.calcPathDataMap(dropoffLink, toLinks, latestDropoffTime, true);
+			result.put(dropoffLink, pathsForDropoffLink);
+		}
+		return result;
 	}
 
 	private Collection<Link> getDetourLinks(Stream<Insertion> filteredInsertions,

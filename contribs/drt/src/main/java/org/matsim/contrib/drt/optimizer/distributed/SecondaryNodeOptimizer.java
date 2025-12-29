@@ -81,7 +81,9 @@ public class SecondaryNodeOptimizer implements DrtOptimizer, MobsimAfterSimStepL
 			request.getPassengerIds(),
 			request.getMode(),
 			request.getFromLink().getId(),
-			request.getToLink().getId()
+			request.getToLink().getId(),
+			request.getAccessLinkCandidates(),
+			request.getEgressLinkCandidates()
 		);
 	}
 }

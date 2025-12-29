@@ -29,6 +29,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -68,6 +69,8 @@ public class SingleInsertionDetourPathCalculatorTest {
 	private final DrtRequest request = DrtRequest.newBuilder()
 			.fromLink(pickupLink)
 			.toLink(dropoffLink)
+			.accessLinkCandidates(Set.of(pickupLink))
+			.egressLinkCandidates(Set.of(dropoffLink))
 			.earliestDepartureTime(100)
 			.constraints(
 					new DrtRouteConstraints(

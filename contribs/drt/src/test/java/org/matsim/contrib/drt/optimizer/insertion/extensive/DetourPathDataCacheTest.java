@@ -24,6 +24,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
@@ -68,20 +71,26 @@ public class DetourPathDataCacheTest {
 	private final PathData dropoff_stop0 = mock(PathData.class);
 	private final PathData dropoff_stop1 = mock(PathData.class);
 
-	private final DrtRequest request = DrtRequest.newBuilder().fromLink(pickupLink).toLink(dropoffLink).build();
+	private final DrtRequest request = DrtRequest.newBuilder().fromLink(pickupLink).toLink(dropoffLink)
+			.accessLinkCandidates(Set.of(pickupLink)).egressLinkCandidates(Set.of(dropoffLink)).build();
 	private final VehicleEntry entry = entry(startLink, stop0Link, stop1Link);
 
-	private final ImmutableMap<Link, PathData> pathToPickupMap = ImmutableMap.of(startLink, start_pickup, stop0Link,
+	// With dynamic stop selection, the cache uses nested maps: outer key = pickup/dropoff link, inner key = destination link
+	private final ImmutableMap<Link, PathData> pathToPickupMapInner = ImmutableMap.of(startLink, start_pickup, stop0Link,
 			stop0_pickup, stop1Link, stop1_pickup);
+	private final ImmutableMap<Link, Map<Link, PathData>> pathToPickupMap = ImmutableMap.of(pickupLink, pathToPickupMapInner);
 
-	private final ImmutableMap<Link, PathData> pathFromPickupMap = ImmutableMap.of(stop0Link, pickup_stop0, stop1Link,
+	private final ImmutableMap<Link, PathData> pathFromPickupMapInner = ImmutableMap.of(stop0Link, pickup_stop0, stop1Link,
 			pickup_stop1, dropoffLink, pickup_dropoff);
+	private final ImmutableMap<Link, Map<Link, PathData>> pathFromPickupMap = ImmutableMap.of(pickupLink, pathFromPickupMapInner);
 
-	private final ImmutableMap<Link, PathData> pathToDropoffMap = ImmutableMap.of(pickupLink, pickup_dropoff, stop0Link,
+	private final ImmutableMap<Link, PathData> pathToDropoffMapInner = ImmutableMap.of(pickupLink, pickup_dropoff, stop0Link,
 			stop0_dropoff, stop1Link, stop1_dropoff);
+	private final ImmutableMap<Link, Map<Link, PathData>> pathToDropoffMap = ImmutableMap.of(dropoffLink, pathToDropoffMapInner);
 
-	private final ImmutableMap<Link, PathData> pathFromDropoffMap = ImmutableMap.of(stop0Link, dropoff_stop0, stop1Link,
+	private final ImmutableMap<Link, PathData> pathFromDropoffMapInner = ImmutableMap.of(stop0Link, dropoff_stop0, stop1Link,
 			dropoff_stop1);
+	private final ImmutableMap<Link, Map<Link, PathData>> pathFromDropoffMap = ImmutableMap.of(dropoffLink, pathFromDropoffMapInner);
 
 	private static final PathData ZERO_DETOUR = mock(PathData.class);
 	private final DetourPathDataCache detourPathDataCache = new DetourPathDataCache(pathToPickupMap, pathFromPickupMap,
@@ -121,7 +130,7 @@ public class DetourPathDataCacheTest {
 
 	private void assertInsertion(int pickupIdx, int dropoffIdx, PathData detourToPickup, PathData detourFromPickup,
 			PathData detourToDropoff, PathData detourFromDropoff) {
-		Insertion insertion = new Insertion(request, entry, pickupIdx, dropoffIdx);
+		Insertion insertion = new Insertion(request, entry, pickupIdx, dropoffIdx, request.getFromLink(), request.getToLink());
 		var actual = detourPathDataCache.createInsertionDetourData(insertion);
 
 		var expectedInsertionDetourData = new InsertionDetourData(detourToPickup, detourFromPickup, detourToDropoff,

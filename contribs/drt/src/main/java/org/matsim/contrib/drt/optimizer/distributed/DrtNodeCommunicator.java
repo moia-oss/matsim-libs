@@ -65,6 +65,8 @@ public class DrtNodeCommunicator implements MobsimAfterSimStepListener {
 			.fromLink(network.getLinks().get(Id.createLinkId(message.fromLink())))
 			.toLink(network.getLinks().get(Id.createLinkId(message.toLink())))
 			.passengerIds(message.passengerIds())
+			.accessLinkCandidates(message.accessLinkCandidates())
+			.egressLinkCandidates(message.egressLinkCandidates())
 			.build()
 		);
 	}

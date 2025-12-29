@@ -21,6 +21,7 @@
 package org.matsim.contrib.drt.passenger;
 
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Verify;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.population.Person;
@@ -29,8 +30,7 @@ import org.matsim.contrib.dvrp.load.DvrpLoad;
 import org.matsim.contrib.dvrp.optimizer.Request;
 import org.matsim.contrib.dvrp.passenger.PassengerRequest;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -45,6 +45,10 @@ public class DrtRequest implements PassengerRequest {
 
 	private final Link fromLink;
 	private final Link toLink;
+
+	private final Set<Link> accessLinkCandidates = new HashSet<>();
+	private final Set<Link> egressLinkCandidates = new HashSet<>();
+
 	private final DvrpLoad load;
 
 	private final DrtRouteConstraints constraints;
@@ -64,6 +68,8 @@ public class DrtRequest implements PassengerRequest {
 		mode = builder.mode;
 		fromLink = builder.fromLink;
 		toLink = builder.toLink;
+		accessLinkCandidates.addAll(builder.accessLinkCandidates);
+		egressLinkCandidates.addAll(builder.egressLinkCandidates);
 		this.load = builder.load;
 	}
 
@@ -82,6 +88,8 @@ public class DrtRequest implements PassengerRequest {
 		builder.earliestDepartureTime = copy.earliestStartTime;
 		builder.constraints = copy.constraints;
 		builder.load = copy.load;
+		builder.accessLinkCandidates = new HashSet<>(copy.accessLinkCandidates);
+		builder.egressLinkCandidates = new HashSet<>(copy.egressLinkCandidates);
 		return builder;
 	}
 
@@ -125,7 +133,7 @@ public class DrtRequest implements PassengerRequest {
 
 	@Override
 	public List<Id<Person>> getPassengerIds() {
-		return List.copyOf(passengerIds);
+		return Collections.unmodifiableList(passengerIds);
 	}
 
 	@Override
@@ -136,6 +144,16 @@ public class DrtRequest implements PassengerRequest {
 	@Override
 	public DvrpLoad getLoad() {
 		return this.load;
+	}
+
+	@Override
+	public Set<Link> getAccessLinkCandidates() {
+		return Collections.unmodifiableSet(accessLinkCandidates);
+	}
+
+	@Override
+	public Set<Link> getEgressLinkCandidates() {
+		return Collections.unmodifiableSet(egressLinkCandidates);
 	}
 
 	@Override
@@ -163,13 +181,15 @@ public class DrtRequest implements PassengerRequest {
 
 		private List<Id<Person>> passengerIds = new ArrayList<>();
 
+		private Set<Link> accessLinkCandidates = Collections.emptySet();
+		private Set<Link> egressLinkCandidates = Collections.emptySet();
+
 		private String mode;
 		private Link fromLink;
 		private Link toLink;
 		private DvrpLoad load;
 
-		private Builder() {
-		}
+		private Builder() {}
 
 		public Builder id(Id<Request> val) {
 			id = val;
@@ -213,6 +233,18 @@ public class DrtRequest implements PassengerRequest {
 
 		public Builder load(DvrpLoad load) {
 			this.load = load;
+			return this;
+		}
+
+		public Builder accessLinkCandidates(Set<Link> accessLinkCandidates) {
+			Verify.verifyNotNull(accessLinkCandidates, "accessLinkCandidates may not be null.");
+			this.accessLinkCandidates = new HashSet<>(accessLinkCandidates);
+			return this;
+		}
+
+		public Builder egressLinkCandidates(Set<Link> egressLinkCandidates) {
+			Verify.verifyNotNull(egressLinkCandidates, "egressLinkCandidates may not be null.");
+			this.egressLinkCandidates = new HashSet<>(egressLinkCandidates);
 			return this;
 		}
 

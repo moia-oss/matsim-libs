@@ -22,10 +22,7 @@ package org.matsim.contrib.drt.optimizer.insertion;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -86,6 +83,8 @@ public class InsertionGeneratorTest {
 	private final DrtRequest drtRequest = DrtRequest.newBuilder()
 			.fromLink(fromLink)
 			.toLink(toLink)
+			.accessLinkCandidates(Set.of(fromLink))
+			.egressLinkCandidates(Set.of(toLink))
 			.passengerIds(
 					List.of(Id.createPersonId("person"))
 			)
@@ -103,6 +102,8 @@ public class InsertionGeneratorTest {
 						Id.createPersonId("person2")
 				)
 			)
+			.accessLinkCandidates(Set.of(fromLink))
+			.egressLinkCandidates(Set.of(toLink))
 			.load(LOAD_TYPE.fromInt(2))
 			.earliestDepartureTime(0.)
 			.constraints(DRT_ROUTE_CONSTRAINTS)
@@ -120,6 +121,8 @@ public class InsertionGeneratorTest {
 						Id.createPersonId("person5")
 				)
 			)
+			.accessLinkCandidates(Set.of(fromLink))
+			.egressLinkCandidates(Set.of(toLink))
 			.load(LOAD_TYPE.fromInt(5))
 			.earliestDepartureTime(0.)
 			.constraints(DRT_ROUTE_CONSTRAINTS)
@@ -138,7 +141,10 @@ public class InsertionGeneratorTest {
 							0.,
 							false
 					)
-			).load(LOAD_TYPE.getEmptyLoad()).build();
+			).load(LOAD_TYPE.getEmptyLoad())
+			.accessLinkCandidates(Set.of(fromLink))
+			.egressLinkCandidates(Set.of(toLink))
+			.build();
 
 	private final Link depotLink = link("depot");
 	private final DvrpVehicleSpecification vehicleSpecification = ImmutableDvrpVehicleSpecification.newBuilder()
