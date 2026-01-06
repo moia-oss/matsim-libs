@@ -20,11 +20,11 @@
 
 package org.matsim.contrib.dvrp.router;
 
-import static org.matsim.contrib.dvrp.router.DvrpRoutingModule.AccessEgressFacilityFinder;
-
 import org.matsim.api.core.v01.Scenario;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.dvrp.router.DefaultMainLegRouter.RouteCreator;
+import org.matsim.contrib.dvrp.router.accessegress.AccessEgressFacilityFinder;
+import org.matsim.contrib.dvrp.router.accessegress.DecideOnLinkAccessEgressFacilityFinder;
 import org.matsim.contrib.dvrp.run.AbstractDvrpModeModule;
 import org.matsim.contrib.dvrp.run.DvrpMode;
 import org.matsim.contrib.dvrp.run.DvrpModes;

@@ -26,6 +26,7 @@ import static org.mockito.Mockito.*;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,8 @@ import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.population.Activity;
 import org.matsim.api.core.v01.population.Leg;
 import org.matsim.api.core.v01.population.PlanElement;
-import org.matsim.contrib.dvrp.router.DvrpRoutingModule.AccessEgressFacilityFinder;
+import org.matsim.contrib.dvrp.router.accessegress.AccessEgressFacilities;
+import org.matsim.contrib.dvrp.router.accessegress.AccessEgressFacilityFinder;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.population.PopulationUtils;
 import org.matsim.core.router.DefaultRoutingRequest;
@@ -62,7 +64,7 @@ public class RoutingTimeStructureTest {
 
 		AccessEgressFacilityFinder stopFinder = mock(AccessEgressFacilityFinder.class);
 		when(stopFinder.findFacilities(eq(fromFacility), eq(toFacility), any())).thenReturn(
-				Optional.of(Pair.of(accessFacility, egressFacility)));
+				Optional.of(new AccessEgressFacilities(Set.of(accessFacility), Set.of(egressFacility))));
 
 		RoutingModule accessRouter = mock(RoutingModule.class);
 		when(accessRouter.calcRoute(Mockito.any())).thenAnswer(iv -> {
@@ -122,7 +124,7 @@ public class RoutingTimeStructureTest {
 
 		AccessEgressFacilityFinder stopFinder = mock(AccessEgressFacilityFinder.class);
 		when(stopFinder.findFacilities(eq(fromFacility), eq(toFacility), any())).thenReturn(
-				Optional.of(Pair.of(accessFacility, egressFacility)));
+			Optional.of(new AccessEgressFacilities(Set.of(accessFacility), Set.of(egressFacility))));
 
 		RoutingModule accessRouter = mock(RoutingModule.class);
 		when(accessRouter.calcRoute(Mockito.any())).thenAnswer(iv -> {

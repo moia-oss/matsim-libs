@@ -18,15 +18,13 @@
  * *********************************************************************** *
  */
 
-package org.matsim.contrib.dvrp.router;
+package org.matsim.contrib.dvrp.router.accessegress;
 
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.apache.commons.lang3.tuple.Pair;
 import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.network.Network;
-import org.matsim.contrib.dvrp.router.DvrpRoutingModule.AccessEgressFacilityFinder;
 import org.matsim.core.utils.collections.QuadTree;
 import org.matsim.core.utils.geometry.CoordUtils;
 import org.matsim.facilities.Facility;
@@ -41,6 +39,7 @@ public class ClosestAccessEgressFacilityFinder implements AccessEgressFacilityFi
 	private final Network network;
 	private final QuadTree<? extends Facility> facilityQuadTree;
 	private final double maxDistance;
+	private final int numberOfAccessEgressCandidates=1;
 
 	public ClosestAccessEgressFacilityFinder(double maxDistance, Network network,
 			QuadTree<? extends Facility> facilityQuadTree) {
@@ -50,23 +49,27 @@ public class ClosestAccessEgressFacilityFinder implements AccessEgressFacilityFi
 	}
 
 	@Override
-	public Optional<Pair<Facility, Facility>> findFacilities(Facility fromFacility, Facility toFacility, Attributes tripAttributes) {
-		Facility accessFacility = findClosestStop(fromFacility);
-		if (accessFacility == null) {
+	public Optional<AccessEgressFacilities> findFacilities(Facility fromFacility, Facility toFacility, Attributes tripAttributes) {
+		Set<Facility> accessFacilities = findClosestStops(fromFacility);
+		if (accessFacilities.isEmpty()) {
 			return Optional.empty();
 		}
 
-		Facility egressFacility = findClosestStop(toFacility);
-		return egressFacility == null ?
+		Set<Facility> egressFacility = findClosestStops(toFacility);
+		return egressFacility.isEmpty() ?
 				Optional.empty() :
-				Optional.of(new ImmutablePair<>(accessFacility, egressFacility));
+				Optional.of(new AccessEgressFacilities(accessFacilities, egressFacility));
 	}
 
-	private Facility findClosestStop(Facility facility) {
+	private Set<Facility> findClosestStops(Facility facility) {
 		Coord coord = getFacilityCoord(facility, network);
-		Facility closestStop = facilityQuadTree.getClosest(coord.getX(), coord.getY());
-		double closestStopDistance = CoordUtils.calcEuclideanDistance(coord, closestStop.getCoord());
-		return closestStopDistance > maxDistance ? null : closestStop;
+		Collection<Facility> closestStops = (Collection<Facility>) facilityQuadTree.getDisk(coord.getX(), coord.getY(), maxDistance);
+
+		Set<Facility> nearestStopsSorted = closestStops.stream()
+			.sorted(Comparator.comparingDouble(o -> CoordUtils.calcEuclideanDistance(coord, o.getCoord())))
+			.limit(numberOfAccessEgressCandidates)
+			.collect(Collectors.toSet());
+		return nearestStopsSorted;
 	}
 
 	static Coord getFacilityCoord(Facility facility, Network network) {

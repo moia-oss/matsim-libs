@@ -25,20 +25,20 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.population.Activity;
 import org.matsim.api.core.v01.population.Person;
 import org.matsim.api.core.v01.population.PlanElement;
+import org.matsim.contrib.dvrp.router.accessegress.AccessEgressFacilities;
+import org.matsim.contrib.dvrp.router.accessegress.AccessEgressFacilityFinder;
 import org.matsim.core.population.PopulationUtils;
 import org.matsim.core.router.DefaultRoutingRequest;
 import org.matsim.core.router.RoutingModule;
 import org.matsim.core.router.RoutingRequest;
 import org.matsim.core.utils.timing.TimeInterpretation;
 import org.matsim.facilities.Facility;
-import org.matsim.utils.objectattributes.attributable.Attributes;
 
 /**
  * @author jbischoff
@@ -46,11 +46,6 @@ import org.matsim.utils.objectattributes.attributable.Attributes;
  */
 public class DvrpRoutingModule implements RoutingModule {
 	private static final Logger logger = LogManager.getLogger(DvrpRoutingModule.class);
-
-	public interface AccessEgressFacilityFinder {
-		Optional<Pair<Facility, Facility>> findFacilities(Facility fromFacility, Facility toFacility,
-				Attributes tripAttributes);
-	}
 
 	private final AccessEgressFacilityFinder stopFinder;
 	private final String mode;
@@ -76,7 +71,7 @@ public class DvrpRoutingModule implements RoutingModule {
 		final double departureTime = request.getDepartureTime();
 		final Person person = request.getPerson();
 
-		Optional<Pair<Facility, Facility>> stops = stopFinder.findFacilities(
+		Optional<AccessEgressFacilities> stops = stopFinder.findFacilities(
 				Objects.requireNonNull(fromFacility, "fromFacility is null"),
 				Objects.requireNonNull(toFacility, "toFacility is null"), request.getAttributes());
 		if (stops.isEmpty()) {
@@ -89,8 +84,9 @@ public class DvrpRoutingModule implements RoutingModule {
 			return null;
 		}
 
-		Facility accessFacility = stops.get().getLeft();
-		Facility egressFacility = stops.get().getRight();
+		Facility accessFacility = stops.get().access().iterator().next();
+		Facility egressFacility = stops.get().egress().iterator().next();
+
 		if (accessFacility.getLinkId().equals(egressFacility.getLinkId())) {
 			logger.debug("Start and end stop are the same, agent will use fallback mode as leg mode (usually "
 					+ TransportMode.walk

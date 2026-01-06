@@ -45,10 +45,10 @@ import org.matsim.contrib.dvrp.load.DvrpLoadType;
 import org.matsim.contrib.dvrp.load.IntegerLoadType;
 import org.matsim.contrib.dvrp.passenger.DefaultDvrpLoadFromTrip;
 import org.matsim.contrib.dvrp.passenger.DvrpLoadFromTrip;
-import org.matsim.contrib.dvrp.router.ClosestAccessEgressFacilityFinder;
+import org.matsim.contrib.dvrp.router.accessegress.ClosestAccessEgressFacilityFinder;
 import org.matsim.contrib.dvrp.router.DefaultMainLegRouter;
 import org.matsim.contrib.dvrp.router.DvrpRoutingModule;
-import org.matsim.contrib.dvrp.router.DvrpRoutingModule.AccessEgressFacilityFinder;
+import org.matsim.contrib.dvrp.router.accessegress.AccessEgressFacilityFinder;
 import org.matsim.contrib.dvrp.router.TimeAsTravelDisutility;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
@@ -108,7 +108,7 @@ public class DrtRoutingModuleTest {
 				scenario.getNetwork(), QuadTrees.createQuadTree(drtStops.values()));
 		DrtRouteCreator drtRouteCreator = new DrtRouteCreator(drtCfg, scenario.getNetwork(),
 				new SpeedyDijkstraFactory(), new FreeSpeedTravelTime(), TimeAsTravelDisutility::new,
-				new DefaultDrtRouteConstraintsCalculator(drtCfg, 
+				new DefaultDrtRouteConstraintsCalculator(drtCfg,
 						(departureTime, accessActLink, egressActLink, person, tripAttributes) -> Optional.of(defaultConstraintsSet)),
 						loadCreator, loadType);
 		DefaultMainLegRouter mainRouter = new DefaultMainLegRouter(drtMode, scenario.getNetwork(),

@@ -24,8 +24,8 @@ import com.google.inject.Inject;
 import com.google.inject.TypeLiteral;
 import com.google.inject.name.Named;
 import org.matsim.api.core.v01.TransportMode;
+import org.matsim.contrib.dvrp.router.accessegress.AccessEgressFacilityFinder;
 import org.matsim.contrib.dvrp.router.DvrpRoutingModule;
-import org.matsim.contrib.dvrp.router.DvrpRoutingModuleProvider;
 import org.matsim.contrib.dvrp.router.DvrpRoutingModuleProvider.Stage;
 import org.matsim.contrib.dvrp.run.DvrpMode;
 import org.matsim.contrib.dvrp.run.DvrpModes;
@@ -63,7 +63,7 @@ public class EstimationRoutingModuleProvider extends ModalProviders.AbstractProv
 		RoutingModule egressRouter = stageRouters.getOrDefault(Stage.EGRESS, walkRouter);
 
 		DvrpRoutingModule routingModule = new DvrpRoutingModule(mainRouter, accessRouter, egressRouter,
-			getModalInstance(DvrpRoutingModule.AccessEgressFacilityFinder.class), getMode(), timeInterpretation);
+			getModalInstance(AccessEgressFacilityFinder.class), getMode(), timeInterpretation);
 		return new EstimationRoutingModule(routingModule, estimators.get(DvrpModes.mode(getMode())));
 	}
 }

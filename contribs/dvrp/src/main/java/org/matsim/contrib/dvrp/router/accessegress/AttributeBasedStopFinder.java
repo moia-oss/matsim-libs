@@ -1,4 +1,4 @@
-package org.matsim.contrib.dvrp.router;
+package org.matsim.contrib.dvrp.router.accessegress;
 
 import java.util.Arrays;
 import java.util.Collection;
@@ -13,11 +13,9 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.network.Network;
-import org.matsim.contrib.dvrp.router.DvrpRoutingModule.AccessEgressFacilityFinder;
 import org.matsim.core.utils.collections.QuadTrees;
 import org.matsim.facilities.Facility;
 import org.matsim.utils.objectattributes.attributable.Attributable;
@@ -46,7 +44,7 @@ public class AttributeBasedStopFinder implements AccessEgressFacilityFinder {
 	}
 
 	@Override
-	public Optional<Pair<Facility, Facility>> findFacilities(Facility fromFacility, Facility toFacility,
+	public Optional<AccessEgressFacilities> findFacilities(Facility fromFacility, Facility toFacility,
 			Attributes attributes) {
 		String stopNetwork = Optional.ofNullable((String)attributes.getAttribute(TRIP_STOP_NETWORK_ATTRIBUTE))
 				.orElse(DEFAULT_STOP_NETWORK);

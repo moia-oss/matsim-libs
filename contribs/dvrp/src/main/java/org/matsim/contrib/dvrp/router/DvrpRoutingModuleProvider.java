@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.Objects;
 
 import org.matsim.api.core.v01.TransportMode;
+import org.matsim.contrib.dvrp.router.accessegress.AccessEgressFacilityFinder;
 import org.matsim.contrib.dvrp.run.DvrpMode;
 import org.matsim.contrib.dvrp.run.DvrpModes;
 import org.matsim.core.modal.ModalProviders;
@@ -61,6 +62,6 @@ public class DvrpRoutingModuleProvider extends ModalProviders.AbstractProvider<D
 		RoutingModule egressRouter = stageRouters.getOrDefault(Stage.EGRESS, walkRouter);
 
 		return new DvrpRoutingModule(mainRouter, accessRouter, egressRouter,
-				getModalInstance(DvrpRoutingModule.AccessEgressFacilityFinder.class), getMode(), timeInterpretation);
+				getModalInstance(AccessEgressFacilityFinder.class), getMode(), timeInterpretation);
 	}
 }
