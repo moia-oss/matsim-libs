@@ -19,6 +19,7 @@
 
 package org.matsim.contrib.drt.routing;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -239,6 +240,53 @@ public class DrtRoutingModuleTest {
 		// TODO: Asserts are prepared for interpreting maxWalkingDistance as a real maximum, but routing still works wrongly
 		Assertions.assertNull(routedList6);
 
+	}
+
+	@Test
+	void testFindClosestStopsReturnsSortedByDistance() {
+		Scenario scenario = createTestScenario();
+		DrtConfigGroup drtCfg = DrtConfigGroup.getSingleModeDrtConfig(scenario.getConfig());
+		DrtOptimizationConstraintsSetImpl defaultConstraintsSet =
+				drtCfg.addOrGetDrtOptimizationConstraintsParams()
+						.addOrGetDefaultDrtOptimizationConstraintsSet();
+
+		ImmutableMap<Id<DrtStopFacility>, DrtStopFacility> drtStops = scenario.getTransitSchedule()
+				.getFacilities()
+				.values()
+				.stream()
+				.map(DrtStopFacilityImpl::createFromFacility)
+				.collect(ImmutableMap.toImmutableMap(DrtStopFacility::getId, f -> f));
+
+		AccessEgressFacilityFinder stopFinder = new ClosestAccessEgressFacilityFinder(
+				defaultConstraintsSet.getMaxWalkDistance(),
+				scenario.getNetwork(), QuadTrees.createQuadTree(drtStops.values()));
+
+		PopulationFactory pf = scenario.getPopulation().getFactory();
+		Activity testActivity = pf.createActivityFromCoord("test", new Coord(451931.406932525, 5733832.50176344));
+		testActivity.setLinkId(Id.createLinkId(3699));
+		Facility testFacility = FacilitiesUtils.toFacility(testActivity, scenario.getActivityFacilities());
+
+		var result = stopFinder.findFacilities(testFacility, testFacility, null);
+
+		Assertions.assertTrue(result.isPresent());
+		var accessFacilities = result.get().access();
+		Assertions.assertFalse(accessFacilities.isEmpty());
+
+		List<Facility> sortedList = new ArrayList<>(accessFacilities);
+
+		for (int i = 0; i < sortedList.size() - 1; i++) {
+			double distance1 = calculateDistance(testFacility.getCoord(), sortedList.get(i).getCoord());
+			double distance2 = calculateDistance(testFacility.getCoord(), sortedList.get(i + 1).getCoord());
+			Assertions.assertTrue(distance1 <= distance2,
+					String.format("Stops not sorted by distance: stop at index %d (distance=%.2f) is further than stop at index %d (distance=%.2f)",
+							i, distance1, i + 1, distance2));
+		}
+	}
+
+	private double calculateDistance(Coord coord1, Coord coord2) {
+		double dx = coord1.getX() - coord2.getX();
+		double dy = coord1.getY() - coord2.getY();
+		return Math.sqrt(dx * dx + dy * dy);
 	}
 
 	@Test
