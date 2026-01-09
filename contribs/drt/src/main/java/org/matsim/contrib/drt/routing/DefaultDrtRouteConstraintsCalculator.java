@@ -51,7 +51,7 @@ public class DefaultDrtRouteConstraintsCalculator implements DrtRouteConstraints
 					maxRideTime,
 					maxWaitTime,
 					constraintsSet.getMaxAllowedPickupDelay(),
-					constraintsSet.getLateDiversionthreshold(),
+					constraintsSet.getLateDiversionThreshold(),
 					constraintsSet.rejectRequestIfMaxWaitOrTravelTimeViolated
 			);
 		} else {

@@ -1,6 +1,7 @@
 package org.matsim.contrib.drt.optimizer.constraints;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import org.matsim.core.config.ReflectiveConfigGroup;
 
@@ -33,11 +34,16 @@ public abstract class DrtOptimizationConstraintsSet extends ReflectiveConfigGrou
     //TODO consider renaming maxWalkDistance to max access/egress distance (or even have 2 separate params)
     @Parameter
     @Comment(
-            "Maximum beeline distance (in meters) to next stop location in stopbased system for access/egress walk leg to/from drt."
+            "Maximum beeline distance (in meters) to next stop location in stop-based system for access/egress walk leg to/from drt."
                     + " If no stop can be found within this maximum distance will return null (in most cases caught by fallback routing module).")
     @PositiveOrZero // used only for stopbased DRT scheme
-    private
-    double maxWalkDistance = Double.MAX_VALUE;// [m];
+    private double maxWalkDistance = Double.MAX_VALUE;// [m];
+
+	@Parameter
+	@Comment(
+		"The maximum number of access/egress stops to consider when performing dynamic stop selection.")
+	@Positive // used only for stop-based DRT scheme
+	private int maxAccessEgressStopCandidates = 1;
 
     @Parameter
     @Comment(
@@ -46,7 +52,7 @@ public abstract class DrtOptimizationConstraintsSet extends ReflectiveConfigGrou
                     "3 minutes away from her destination, even though her time window would allow it." +
                     " Delayed detours just before arrival are usually perceived very negatively.")
     @PositiveOrZero
-    private double lateDiversionthreshold = 0; // [s];
+    private double lateDiversionThreshold = 0; // [s];
 
     @Parameter
     @Comment(
@@ -95,12 +101,12 @@ public abstract class DrtOptimizationConstraintsSet extends ReflectiveConfigGrou
     }
 
     @PositiveOrZero
-    public double getLateDiversionthreshold() {
-        return lateDiversionthreshold;
+    public double getLateDiversionThreshold() {
+        return lateDiversionThreshold;
     }
 
-    public void setLateDiversionthreshold(@PositiveOrZero double lateDiversionthreshold) {
-        this.lateDiversionthreshold = lateDiversionthreshold;
+    public void setLateDiversionThreshold(@PositiveOrZero double lateDiversionThreshold) {
+        this.lateDiversionThreshold = lateDiversionThreshold;
     }
 
     @PositiveOrZero
@@ -111,4 +117,13 @@ public abstract class DrtOptimizationConstraintsSet extends ReflectiveConfigGrou
     public void setMaxAllowedPickupDelay(@PositiveOrZero double maxAllowedPickupDelay) {
         this.maxAllowedPickupDelay = maxAllowedPickupDelay;
     }
+
+	@Positive
+	public int getMaxAccessEgressStopCandidates() {
+		return maxAccessEgressStopCandidates;
+	}
+
+	public void setMaxAccessEgressStopCandidates(@Positive int maxAccessEgressStopCandidates) {
+		this.maxAccessEgressStopCandidates = maxAccessEgressStopCandidates;
+	}
 }

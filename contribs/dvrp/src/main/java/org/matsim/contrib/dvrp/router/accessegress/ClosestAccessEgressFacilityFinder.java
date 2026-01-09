@@ -39,13 +39,14 @@ public class ClosestAccessEgressFacilityFinder implements AccessEgressFacilityFi
 	private final Network network;
 	private final QuadTree<? extends Facility> facilityQuadTree;
 	private final double maxDistance;
-	private final int numberOfAccessEgressCandidates=1;
+	private final int numberOfAccessEgressCandidates;
 
-	public ClosestAccessEgressFacilityFinder(double maxDistance, Network network,
+	public ClosestAccessEgressFacilityFinder(int maxAccessEgressCandidateStops, double maxDistance, Network network,
 			QuadTree<? extends Facility> facilityQuadTree) {
 		this.network = network;
 		this.facilityQuadTree = facilityQuadTree;
 		this.maxDistance = maxDistance;
+		this.numberOfAccessEgressCandidates = maxAccessEgressCandidateStops;
 	}
 
 	@Override

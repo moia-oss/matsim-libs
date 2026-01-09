@@ -53,17 +53,17 @@ public class AttributeBasedStopFinder implements AccessEgressFacilityFinder {
 		return facilityFinder.findFacilities(fromFacility, toFacility, attributes);
 	}
 
-	static public <T extends Facility & Attributable> AttributeBasedStopFinder create(double maxDistance,
+	static public <T extends Facility & Attributable> AttributeBasedStopFinder create(int maxAccessEgressStopCandidates, double maxDistance,
 			Network network, Collection<T> facilities) {
-		return create(maxDistance, network, facilities, AttributeBasedStopFinder::parseStopNetworks);
+		return create(maxAccessEgressStopCandidates, maxDistance, network, facilities, AttributeBasedStopFinder::parseStopNetworks);
 	}
 
-	static public <T extends Facility> AttributeBasedStopFinder create(double maxDistance, Network network,
+	static public <T extends Facility> AttributeBasedStopFinder create(int maxAccessEgressStopCandidates, double maxDistance, Network network,
 			Collection<T> facilities, Function<T, Set<String>> mapper) {
-		return create(maxDistance, network, facilities.stream().collect(Collectors.toMap(f -> f, mapper)));
+		return create(maxAccessEgressStopCandidates, maxDistance, network, facilities.stream().collect(Collectors.toMap(f -> f, mapper)));
 	}
 
-	static public AttributeBasedStopFinder create(double maxDistance, Network network,
+	static public AttributeBasedStopFinder create(int maxAccessEgressStopCandidates, double maxDistance, Network network,
 			Map<Facility, Set<String>> facilities) {
 		Set<String> availableNames = new HashSet<>();
 		facilities.values().forEach(availableNames::addAll);
@@ -76,8 +76,9 @@ public class AttributeBasedStopFinder implements AccessEgressFacilityFinder {
 					.map(e -> e.getKey()) //
 					.collect(Collectors.toList());
 
-			facilityFinders.put(networkName, new ClosestAccessEgressFacilityFinder(maxDistance, network,
-					QuadTrees.createQuadTree(networkFacilities)));
+			facilityFinders.put(networkName, new ClosestAccessEgressFacilityFinder(maxAccessEgressStopCandidates,
+				maxDistance, network,
+				QuadTrees.createQuadTree(networkFacilities)));
 
 			logger.info(
 					String.format("Found %d facilities for stop network %s", networkFacilities.size(), networkName));
@@ -89,7 +90,7 @@ public class AttributeBasedStopFinder implements AccessEgressFacilityFinder {
 				.collect(Collectors.toList());
 
 		if (defaultFacilities.size() > 0) {
-			facilityFinders.put(DEFAULT_STOP_NETWORK, new ClosestAccessEgressFacilityFinder(maxDistance, network,
+			facilityFinders.put(DEFAULT_STOP_NETWORK, new ClosestAccessEgressFacilityFinder(maxAccessEgressStopCandidates, maxDistance, network,
 					QuadTrees.createQuadTree(defaultFacilities)));
 		}
 

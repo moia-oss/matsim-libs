@@ -105,6 +105,7 @@ public class DrtRoutingModuleTest {
 				.collect(ImmutableMap.toImmutableMap(DrtStopFacility::getId, f -> f));
 
 		AccessEgressFacilityFinder stopFinder = new ClosestAccessEgressFacilityFinder(
+				defaultConstraintsSet.getMaxAccessEgressStopCandidates(),
 				defaultConstraintsSet.getMaxWalkDistance(),
 				scenario.getNetwork(), QuadTrees.createQuadTree(drtStops.values()));
 		DrtRouteCreator drtRouteCreator = new DrtRouteCreator(drtCfg, scenario.getNetwork(),
@@ -245,10 +246,13 @@ public class DrtRoutingModuleTest {
 	@Test
 	void testFindClosestStopsReturnsSortedByDistance() {
 		Scenario scenario = createTestScenario();
+		// we want to have a deterministic test where n>1
+		int numberOfAccessEgressCandidates=2;
 		DrtConfigGroup drtCfg = DrtConfigGroup.getSingleModeDrtConfig(scenario.getConfig());
 		DrtOptimizationConstraintsSetImpl defaultConstraintsSet =
 				drtCfg.addOrGetDrtOptimizationConstraintsParams()
 						.addOrGetDefaultDrtOptimizationConstraintsSet();
+		defaultConstraintsSet.setMaxAccessEgressStopCandidates(numberOfAccessEgressCandidates);
 
 		ImmutableMap<Id<DrtStopFacility>, DrtStopFacility> drtStops = scenario.getTransitSchedule()
 				.getFacilities()
@@ -258,6 +262,7 @@ public class DrtRoutingModuleTest {
 				.collect(ImmutableMap.toImmutableMap(DrtStopFacility::getId, f -> f));
 
 		AccessEgressFacilityFinder stopFinder = new ClosestAccessEgressFacilityFinder(
+				defaultConstraintsSet.getMaxAccessEgressStopCandidates(),
 				defaultConstraintsSet.getMaxWalkDistance(),
 				scenario.getNetwork(), QuadTrees.createQuadTree(drtStops.values()));
 
@@ -273,6 +278,7 @@ public class DrtRoutingModuleTest {
 		Assertions.assertFalse(accessFacilities.isEmpty());
 
 		List<Facility> sortedList = new ArrayList<>(accessFacilities);
+		Assertions.assertEquals(numberOfAccessEgressCandidates, sortedList.size());
 
 		for (int i = 0; i < sortedList.size() - 1; i++) {
 			double distance1 = calculateDistance(testFacility.getCoord(), sortedList.get(i).getCoord());
