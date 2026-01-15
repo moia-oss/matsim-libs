@@ -24,7 +24,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -71,8 +70,7 @@ public class DetourPathDataCacheTest {
 	private final PathData dropoff_stop0 = mock(PathData.class);
 	private final PathData dropoff_stop1 = mock(PathData.class);
 
-	private final DrtRequest request = DrtRequest.newBuilder().fromLink(pickupLink).toLink(dropoffLink)
-			.accessLinkCandidates(Set.of(pickupLink)).egressLinkCandidates(Set.of(dropoffLink)).build();
+	private final DrtRequest request = DrtRequest.newBuilder().fromLink(pickupLink).toLink(dropoffLink).build();
 	private final VehicleEntry entry = entry(startLink, stop0Link, stop1Link);
 
 	// With dynamic stop selection, the cache uses nested maps: outer key = pickup/dropoff link, inner key = destination link

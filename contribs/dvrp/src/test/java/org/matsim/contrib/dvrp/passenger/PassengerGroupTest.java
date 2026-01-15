@@ -92,7 +92,7 @@ public class PassengerGroupTest {
 				new PersonDepartureEvent(departureTime, person1, fixture.linkAB.getId(), MODE, MODE),
 				new PassengerWaitingEvent(departureTime, MODE, requestId, List.of(person1, person2)),
 				new PassengerRequestScheduledEvent(departureTime, MODE, requestId, List.of(person1, person2), VEHICLE_ID, 0,
-						scheduledDropoffTime),
+						scheduledDropoffTime, fixture.linkAB.getId(), fixture.linkBA.getId()),
 				new PersonEntersVehicleEvent(pickupStartTime, person1, Id.createVehicleId(VEHICLE_ID)),
 				new PassengerPickedUpEvent(pickupStartTime, MODE, requestId, person1, VEHICLE_ID),
 				new PersonEntersVehicleEvent(pickupStartTime, person2, Id.createVehicleId(VEHICLE_ID)),

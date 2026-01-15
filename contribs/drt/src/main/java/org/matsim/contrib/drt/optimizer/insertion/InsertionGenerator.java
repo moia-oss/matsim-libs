@@ -210,8 +210,8 @@ public class InsertionGenerator {
 			allowed &= drtRequest.getEarliestStartTime() <= nextStop.getLatestDepartureTime();
 
 			if (allowed) {
-				for (Link accessLinkCandidate : drtRequest.getAccessLinkCandidates()) {
-					for (Link egressLinkCandidate : drtRequest.getEgressLinkCandidates()) {
+				for (Link accessLinkCandidate : drtRequest.getFromLinks()) {
+					for (Link egressLinkCandidate : drtRequest.getToLinks()) {
 						if(accessLinkCandidate.equals(egressLinkCandidate)) {
 							continue;
 						}
@@ -254,8 +254,8 @@ public class InsertionGenerator {
 
 		// here we still have to check if the load of the request is compatible with the last vehicle capacity
 		if(drtRequest.getLoad().fitsIn(vehicleCapacity)) {
-			for (Link accessLinkCandidate : drtRequest.getAccessLinkCandidates()) {
-				for (Link egressLinkCandidate : drtRequest.getEgressLinkCandidates()) {
+			for (Link accessLinkCandidate : drtRequest.getFromLinks()) {
+				for (Link egressLinkCandidate : drtRequest.getToLinks()) {
 					if(accessLinkCandidate.equals(egressLinkCandidate)) {
 						continue;
 					}

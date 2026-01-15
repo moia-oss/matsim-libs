@@ -171,7 +171,7 @@ public class TeleportingEstimationPassengerEngine implements PassengerEngine, Vi
 			route.setDistance(getEstimatedRideDistance(leg));
 
 			eventsManager.processEvent(new PassengerRequestScheduledEvent(mobsimTimer.getTimeOfDay(), mode, request.getId(),
-				request.getPassengerIds(), null, now, now + travelTime));
+				request.getPassengerIds(), null, now, now + travelTime, fromLinkId, toLinkId));
 
 			teleportationEngine.handleDeparture(now, passenger, fromLinkId);
 

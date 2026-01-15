@@ -108,7 +108,7 @@ public class DefaultPassengerEngineTest {
 				new PersonDepartureEvent(departureTime, fixture.PERSON_ID, fixture.linkAB.getId(), MODE, MODE),
 				new PassengerWaitingEvent(departureTime, MODE, requestId, List.of(fixture.PERSON_ID)),
 				new PassengerRequestScheduledEvent(departureTime, MODE, requestId, List.of(fixture.PERSON_ID), VEHICLE_ID, 0,
-						scheduledDropoffTime),
+						scheduledDropoffTime, fixture.linkAB.getId(), fixture.linkBA.getId()),
 				new PersonEntersVehicleEvent(pickupStartTime, fixture.PERSON_ID, Id.createVehicleId(VEHICLE_ID)),
 				new PassengerPickedUpEvent(pickupStartTime, MODE, requestId, fixture.PERSON_ID, VEHICLE_ID),
 				new PassengerDroppedOffEvent(dropoffEndTime, MODE, requestId, fixture.PERSON_ID, VEHICLE_ID),

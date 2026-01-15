@@ -82,8 +82,8 @@ public class SingleInsertionDetourPathCalculator implements MobsimBeforeCleanupL
 	}
 
 	public InsertionDetourData calculatePaths(DrtRequest drtRequest, Insertion insertion) {
-		Link pickup = drtRequest.getFromLink();
-		Link dropoff = drtRequest.getToLink();
+		Link pickup = insertion.pickup.newWaypoint.getLink();
+		Link dropoff = insertion.dropoff.newWaypoint.getLink();
 
 		double earliestPickupTime = drtRequest.getEarliestStartTime(); // optimistic
 		double latestDropoffTime = drtRequest.getLatestArrivalTime(); // pessimistic

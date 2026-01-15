@@ -35,19 +35,19 @@ import java.util.stream.Collectors;
 
 /**
  * @author michalm
+ *
+ * @author nkuehnel / MOIA
+ * @author mfrawley / MOIA
  */
 public class DrtRequest implements PassengerRequest {
 	private final Id<Request> id;
 	private final double submissionTime;
 
-	private final List<Id<Person>> passengerIds = new ArrayList<>();
+	private final List<Id<Person>> passengerIds;
 	private final String mode;
 
-	private final Link fromLink;
-	private final Link toLink;
-
-	private final Set<Link> accessLinkCandidates = new HashSet<>();
-	private final Set<Link> egressLinkCandidates = new HashSet<>();
+	private final List<Link> fromLinks;
+	private final List<Link> toLinks;
 
 	private final DvrpLoad load;
 
@@ -64,12 +64,10 @@ public class DrtRequest implements PassengerRequest {
 		latestStartTime = earliestStartTime + builder.constraints.maxWaitDuration();
 		latestArrivalTime = earliestStartTime + builder.constraints.maxTravelDuration();
 		constraints = builder.constraints;
-		passengerIds.addAll(builder.passengerIds);
 		mode = builder.mode;
-		fromLink = builder.fromLink;
-		toLink = builder.toLink;
-		accessLinkCandidates.addAll(builder.accessLinkCandidates);
-		egressLinkCandidates.addAll(builder.egressLinkCandidates);
+		passengerIds = List.copyOf(builder.passengerIds);
+		fromLinks = List.copyOf(builder.fromLinks);
+		toLinks = List.copyOf(builder.toLinks);
 		this.load = builder.load;
 	}
 
@@ -81,15 +79,13 @@ public class DrtRequest implements PassengerRequest {
 		Builder builder = new Builder();
 		builder.id = copy.getId();
 		builder.submissionTime = copy.getSubmissionTime();
-		builder.passengerIds = new ArrayList<>(copy.getPassengerIds());
+		builder.passengerIds = List.copyOf(copy.getPassengerIds());
 		builder.mode = copy.getMode();
-		builder.fromLink = copy.getFromLink();
-		builder.toLink = copy.getToLink();
 		builder.earliestDepartureTime = copy.earliestStartTime;
 		builder.constraints = copy.constraints;
 		builder.load = copy.load;
-		builder.accessLinkCandidates = new HashSet<>(copy.accessLinkCandidates);
-		builder.egressLinkCandidates = new HashSet<>(copy.egressLinkCandidates);
+		builder.fromLinks = List.copyOf(copy.fromLinks);
+		builder.toLinks = List.copyOf(copy.toLinks);
 		return builder;
 	}
 
@@ -122,18 +118,18 @@ public class DrtRequest implements PassengerRequest {
 	}
 
 	@Override
-	public Link getFromLink() {
-		return fromLink;
+	public List<Link> getFromLinks() {
+		return fromLinks;
 	}
 
 	@Override
-	public Link getToLink() {
-		return toLink;
+	public List<Link> getToLinks() {
+		return toLinks;
 	}
 
 	@Override
 	public List<Id<Person>> getPassengerIds() {
-		return Collections.unmodifiableList(passengerIds);
+		return passengerIds;
 	}
 
 	@Override
@@ -147,16 +143,6 @@ public class DrtRequest implements PassengerRequest {
 	}
 
 	@Override
-	public Set<Link> getAccessLinkCandidates() {
-		return Collections.unmodifiableSet(accessLinkCandidates);
-	}
-
-	@Override
-	public Set<Link> getEgressLinkCandidates() {
-		return Collections.unmodifiableSet(egressLinkCandidates);
-	}
-
-	@Override
 	public String toString() {
 		return MoreObjects.toStringHelper(this)
 				.add("id", id)
@@ -167,8 +153,8 @@ public class DrtRequest implements PassengerRequest {
 				.add("maxRideDuration", constraints.maxRideDuration())
 				.add("passengerIds", passengerIds.stream().map(Object::toString).collect(Collectors.joining(",")))
 				.add("mode", mode)
-				.add("fromLink", fromLink)
-				.add("toLink", toLink)
+				.add("fromLink", fromLinks)
+				.add("toLink", toLinks)
 				.toString();
 	}
 
@@ -181,12 +167,10 @@ public class DrtRequest implements PassengerRequest {
 
 		private List<Id<Person>> passengerIds = new ArrayList<>();
 
-		private Set<Link> accessLinkCandidates = Collections.emptySet();
-		private Set<Link> egressLinkCandidates = Collections.emptySet();
+		private List<Link> fromLinks;
+		private List<Link> toLinks;
 
 		private String mode;
-		private Link fromLink;
-		private Link toLink;
 		private DvrpLoad load;
 
 		private Builder() {}
@@ -221,30 +205,64 @@ public class DrtRequest implements PassengerRequest {
 			return this;
 		}
 
-		public Builder fromLink(Link val) {
-			fromLink = val;
-			return this;
-		}
-
-		public Builder toLink(Link val) {
-			toLink = val;
-			return this;
-		}
-
 		public Builder load(DvrpLoad load) {
 			this.load = load;
 			return this;
 		}
 
-		public Builder accessLinkCandidates(Set<Link> accessLinkCandidates) {
-			Verify.verifyNotNull(accessLinkCandidates, "accessLinkCandidates may not be null.");
-			this.accessLinkCandidates = new HashSet<>(accessLinkCandidates);
+		/**
+		 * Set ordered set of potential pickup links, with most preferred first.
+		 * For stop-based DRT with multiple candidates.
+		 *
+		 * @param fromLinkCandidates ordered set of pickup link candidates
+		 * @return this builder
+		 */
+		public Builder fromLinks(List<Link> fromLinkCandidates) {
+			Verify.verifyNotNull(fromLinkCandidates, "fromLinkCandidates may not be null.");
+			this.fromLinks = List.copyOf(fromLinkCandidates);
 			return this;
 		}
 
-		public Builder egressLinkCandidates(Set<Link> egressLinkCandidates) {
-			Verify.verifyNotNull(egressLinkCandidates, "egressLinkCandidates may not be null.");
-			this.egressLinkCandidates = new HashSet<>(egressLinkCandidates);
+		/**
+		 * Set ordered set of potential dropoff links, with most preferred first.
+		 * For stop-based DRT with multiple candidates.
+		 *
+		 * @param toLinkCandidates ordered set of dropoff link candidates
+		 * @return this builder
+		 */
+		public Builder toLinks(List<Link> toLinkCandidates) {
+			Verify.verifyNotNull(toLinkCandidates, "toLinkCandidates may not be null.");
+			this.toLinks = List.copyOf(toLinkCandidates);
+			return this;
+		}
+
+		/**
+		 * Convenience method for single pickup link (e.g., taxi, door-to-door DRT).
+		 * Wraps the link into a singleton set.
+		 *
+		 * @param fromLink single pickup link
+		 * @return this builder
+		 * @deprecated Use {@link #fromLinks(List)} for consistency
+		 */
+		@Deprecated
+		public Builder fromLink(Link fromLink) {
+			Verify.verifyNotNull(fromLink, "fromLink may not be null.");
+			this.fromLinks = List.of(fromLink);
+			return this;
+		}
+
+		/**
+		 * Convenience method for single dropoff link (e.g., taxi, door-to-door DRT).
+		 * Wraps the link into a singleton set.
+		 *
+		 * @param toLink single dropoff link
+		 * @return this builder
+		 * @deprecated Use {@link #toLinks(List)} for consistency
+		 */
+		@Deprecated
+		public Builder toLink(Link toLink) {
+			Verify.verifyNotNull(toLink, "toLink may not be null.");
+			this.toLinks = List.of(toLink);
 			return this;
 		}
 

@@ -23,6 +23,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
+import com.google.common.base.Verify;
 import com.google.inject.Inject;
 import com.google.inject.Provider;
 
@@ -177,7 +178,7 @@ public final class PassengerEngineWithPrebooking
 		Collection<PassengerRequest> allRequestsForThisPassenger = advanceRequests.get(passengerId);
 		List<PassengerRequest> filteredRequests = advanceRequests.get(passengerId)
 				.stream()
-				.filter(r -> r.getFromLink().getId().equals(fromLinkId) && r.getToLink().getId().equals(toLinkId))
+				.filter(r -> r.getFromLinks().iterator().next().getId().equals(fromLinkId) && r.getToLinks().iterator().next().getId().equals(toLinkId))
 				.collect(Collectors.toList());
 
 		allRequestsForThisPassenger.removeAll(filteredRequests);
@@ -267,7 +268,7 @@ public final class PassengerEngineWithPrebooking
 		if (requestEntry != null) {
 			PassengerRequest request = requestEntry.request;
 			preplanningEngine.notifyChangedTripInformation(requestEntry.passenger, Optional.of(
-					new DvrpTripInfo(mode, request.getFromLink(), request.getToLink(), event.getPickupTime(),
+					new DvrpTripInfo(mode, request.getFromLinks().iterator().next(), request.getToLinks().iterator().next(), event.getPickupTime(),
 							event.getTime(), requestEntry.originalRequest, this)));
 		}
 	}

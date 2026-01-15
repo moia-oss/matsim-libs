@@ -23,6 +23,7 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Id;
+import org.matsim.api.core.v01.Identifiable;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.population.Person;
 import org.matsim.api.core.v01.population.Route;
@@ -32,17 +33,22 @@ import org.matsim.contrib.drt.routing.DrtRoute;
 import org.matsim.contrib.dvrp.load.DvrpLoad;
 import org.matsim.contrib.dvrp.load.DvrpLoadType;
 import org.matsim.contrib.dvrp.optimizer.Request;
+import org.matsim.contrib.dvrp.passenger.PassengerRequest;
 import org.matsim.contrib.dvrp.passenger.PassengerRequestCreator;
 import org.matsim.core.api.experimental.events.EventsManager;
 
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
+import java.util.SequencedSet;
+import java.util.stream.Collectors;
 
 /**
  * @author michalm
  */
 public class DrtRequestCreator implements PassengerRequestCreator {
+
 	private static final Logger log = LogManager.getLogger(DrtRequestCreator.class);
+
 	private final String mode;
 	private final EventsManager eventsManager;
 	private final DvrpLoadType dvrpLoadType;
@@ -56,29 +62,29 @@ public class DrtRequestCreator implements PassengerRequestCreator {
 	}
 
 	@Override
-	public DrtRequest createRequest(Id<Request> id, List<Id<Person>> passengerIds, List<Route> routes, Link fromLink, Link toLink,
-									double departureTime, double submissionTime) {
-
+	public PassengerRequest createRequest(Id<Request> id, List<Id<Person>> passengerIds, List<Route> routes,
+										  List<Link> fromLinks, List<Link> toLinks,
+										  double departureTime, double submissionTime) {
 		double maxWaitDuration = Double.POSITIVE_INFINITY;
 		double maxTravelDuration = Double.POSITIVE_INFINITY;
 		double maxRideDuration = Double.POSITIVE_INFINITY;
-        double maxPickupDelay = Double.POSITIVE_INFINITY;
+		double maxPickupDelay = Double.POSITIVE_INFINITY;
 
-        double lateDiversionThreshold = 0;
+		double lateDiversionThreshold = 0;
 		boolean allowRejection = true;
 		DvrpLoad load = emptyLoad;
 
 		Preconditions.checkArgument(!passengerIds.isEmpty());
 		for (Route route : routes) {
 			DrtRoute drtRoute = (DrtRoute)route;
-            DrtRouteConstraints constraints = drtRoute.getConstraints();
+			DrtRouteConstraints constraints = drtRoute.getConstraints();
 
 			maxWaitDuration = Math.min(maxWaitDuration, constraints.maxWaitDuration());
 			maxTravelDuration = Math.min(maxTravelDuration, constraints.maxTravelDuration());
 			maxRideDuration = Math.min(maxRideDuration, constraints.maxRideDuration());
-            maxPickupDelay = Math.min(maxPickupDelay, constraints.maxPickupDelay());
-            lateDiversionThreshold = Math.max(lateDiversionThreshold, constraints.lateDiversionThreshold());
-            load = load.add(drtRoute.getLoad(dvrpLoadType));
+			maxPickupDelay = Math.min(maxPickupDelay, constraints.maxPickupDelay());
+			lateDiversionThreshold = Math.max(lateDiversionThreshold, constraints.lateDiversionThreshold());
+			load = load.add(drtRoute.getLoad(dvrpLoadType));
 			allowRejection = allowRejection && constraints.allowRejection();
 		}
 
@@ -95,9 +101,12 @@ public class DrtRequestCreator implements PassengerRequestCreator {
 		DrtRoute drtRoute = (DrtRoute) routes.get(0);
 		String serializedLoad = this.dvrpLoadType.serialize(load);
 
+		List<Id<Link>> fromLinkIds = fromLinks.stream().map(Link::getId).toList();
+		List<Id<Link>> toLinkIds = toLinks.stream().map(Link::getId).toList();
 		eventsManager.processEvent(
-				new DrtRequestSubmittedEvent(submissionTime, mode, id, passengerIds, fromLink.getId(),
-						toLink.getId(), drtRoute.getDirectRideTime(), drtRoute.getDistance(),
+				new DrtRequestSubmittedEvent(submissionTime, mode, id, passengerIds,
+						fromLinkIds, toLinkIds,
+						drtRoute.getDirectRideTime(), drtRoute.getDistance(),
 						departureTime, departureTime + maxWaitDuration,
 						departureTime + maxTravelDuration, maxRideDuration,
 						load, serializedLoad)
@@ -107,14 +116,12 @@ public class DrtRequestCreator implements PassengerRequestCreator {
 				.id(id)
 				.passengerIds(passengerIds)
 				.mode(mode)
-				.fromLink(fromLink)
-				.toLink(toLink)
+				.fromLinks(fromLinks)
+				.toLinks(toLinks)
 				.earliestDepartureTime(departureTime)
 				.constraints(consolidatedConstrains)
 				.submissionTime(submissionTime)
 				.load(load)
-				.accessLinkCandidates(Set.of(fromLink))
-				.egressLinkCandidates(Set.of(toLink))
 				.build();
 
 		log.debug(drtRoute);

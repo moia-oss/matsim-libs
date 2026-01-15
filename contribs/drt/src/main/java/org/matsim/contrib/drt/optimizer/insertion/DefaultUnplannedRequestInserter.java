@@ -26,6 +26,7 @@ import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Id;
 import org.matsim.contrib.drt.optimizer.DrtRequestInsertionRetryQueue;
 import org.matsim.contrib.drt.optimizer.VehicleEntry;
+import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
 import org.matsim.contrib.drt.passenger.DrtOfferAcceptor;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
@@ -134,16 +135,19 @@ public class DefaultUnplannedRequestInserter implements UnplannedRequestInserter
 			double dropoffDuration = stopDurationProvider.calcDropoffDuration(vehicle, req);
 
 			// accept offered drt ride
-			var acceptedRequest = drtOfferAcceptor.acceptDrtOffer(req,
+			var maybeAcceptedRequest = drtOfferAcceptor.acceptDrtOffer(req,
 					insertion.detourTimeInfo.pickupDetourInfo.requestPickupTime,
 					insertion.detourTimeInfo.dropoffDetourInfo.requestDropoffTime,
+					insertion.insertion.pickup.newWaypoint.getLink(),
+					insertion.insertion.dropoff.newWaypoint.getLink(),
 					pickupDuration, dropoffDuration);
 
-			if(acceptedRequest.isPresent()) {
-				var pickupDropoffTaskPair = insertionScheduler.scheduleRequest(acceptedRequest.get(), insertion);
+			if(maybeAcceptedRequest.isPresent()) {
+				AcceptedDrtRequest acceptedRequest = maybeAcceptedRequest.get();
+				var pickupDropoffTaskPair = insertionScheduler.scheduleRequest(acceptedRequest, insertion);
 
 				double expectedPickupTime = pickupDropoffTaskPair.pickupTask.getBeginTime();
-				expectedPickupTime = Math.max(expectedPickupTime, acceptedRequest.get().getEarliestStartTime());
+				expectedPickupTime = Math.max(expectedPickupTime, acceptedRequest.getEarliestStartTime());
 				expectedPickupTime += pickupDuration;
 
 				// if the stop task ends earlier, it means that it was decided that the stop duration
@@ -162,7 +166,8 @@ public class DefaultUnplannedRequestInserter implements UnplannedRequestInserter
 
 				eventsManager.processEvent(
 						new PassengerRequestScheduledEvent(now, mode, req.getId(), req.getPassengerIds(), vehicle.getId(),
-								expectedPickupTime, expectedDropoffTime));
+								expectedPickupTime, expectedDropoffTime,
+								acceptedRequest.getPickupLink().getId(), acceptedRequest.getDropoffLink().getId()));
 			} else {
 				retryOrReject(req, now, OFFER_REJECTED_CAUSE);
 			}
@@ -178,8 +183,8 @@ public class DefaultUnplannedRequestInserter implements UnplannedRequestInserter
 					+ req
 					+ " with passenger ids="
 					+ req.getPassengerIds().stream().map(Object::toString).collect(Collectors.joining(","))
-					+ " fromLinkId="
-					+ req.getFromLink().getId());
+					+ " fromLinkIds="
+					+ req.getFromLinks().stream().map(Object::toString).collect(Collectors.joining(",")));
 		}
 	}
 

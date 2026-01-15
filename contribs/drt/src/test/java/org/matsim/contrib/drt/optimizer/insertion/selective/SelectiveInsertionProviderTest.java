@@ -72,7 +72,7 @@ public class SelectiveInsertionProviderTest {
 	}
 
 	private void getInsertions_twoInsertionsGenerated(boolean oneSelected) {
-		var request = DrtRequest.newBuilder().build();
+		var request = DrtRequest.newBuilder().fromLinks(List.of()).toLinks(List.of()).build();
 		var vehicleEntry = mock(VehicleEntry.class);
 
 		// mock insertionGenerator

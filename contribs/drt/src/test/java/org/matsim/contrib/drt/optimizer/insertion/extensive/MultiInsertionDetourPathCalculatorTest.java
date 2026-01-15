@@ -65,8 +65,6 @@ public class MultiInsertionDetourPathCalculatorTest {
 	private final DrtRequest request = DrtRequest.newBuilder()
 			.fromLink(pickupLink)
 			.toLink(dropoffLink)
-			.accessLinkCandidates(Set.of(pickupLink))
-			.egressLinkCandidates(Set.of(dropoffLink))
 			.earliestDepartureTime(100)
 			.constraints(
 					new DrtRouteConstraints(

@@ -67,10 +67,7 @@ public class InsertionGeneratorMultiLinkTest {
 		Link accessLink = link("access");
 		Link egressLink = link("egress");
 
-		DrtRequest request = createRequest(
-			Set.of(accessLink),
-			Set.of(egressLink)
-		);
+		DrtRequest request = createRequest(List.of(accessLink), List.of(egressLink));
 
 		VehicleEntry vehicle = createVehicle(2); // Vehicle with 2 stops
 
@@ -94,10 +91,7 @@ public class InsertionGeneratorMultiLinkTest {
 		Link access3 = link("access3");
 		Link egress = link("egress");
 
-		DrtRequest request = createRequest(
-			Set.of(access1, access2, access3),
-			Set.of(egress)
-		);
+		DrtRequest request = createRequest(List.of(access1, access2, access3), List.of(egress));
 
 		VehicleEntry vehicle = createVehicle(2);
 
@@ -126,10 +120,7 @@ public class InsertionGeneratorMultiLinkTest {
 		Link egress2 = link("egress2");
 		Link egress3 = link("egress3");
 
-		DrtRequest request = createRequest(
-			Set.of(access),
-			Set.of(egress1, egress2, egress3)
-		);
+		DrtRequest request = createRequest(List.of(access), List.of(egress1, egress2, egress3));
 
 		VehicleEntry vehicle = createVehicle(2);
 
@@ -158,10 +149,7 @@ public class InsertionGeneratorMultiLinkTest {
 		Link egress1 = link("egress1");
 		Link egress2 = link("egress2");
 
-		DrtRequest request = createRequest(
-			Set.of(access1, access2),
-			Set.of(egress1, egress2)
-		);
+		DrtRequest request = createRequest(List.of(access1, access2), List.of(egress1, egress2));
 
 		VehicleEntry vehicle = createVehicle(2);
 
@@ -189,10 +177,7 @@ public class InsertionGeneratorMultiLinkTest {
 		Link sameLink = link("same");
 		Link differentLink = link("different");
 
-		DrtRequest request = createRequest(
-			Set.of(sameLink, differentLink),
-			Set.of(sameLink, differentLink)
-		);
+		DrtRequest request = createRequest(List.of(sameLink, differentLink), List.of(sameLink, differentLink));
 
 		VehicleEntry vehicle = createVehicle(2);
 
@@ -227,10 +212,7 @@ public class InsertionGeneratorMultiLinkTest {
 		Link egress1 = link("egress1");
 		Link egress2 = link("egress2");
 
-		DrtRequest request = createRequest(
-			Set.of(access1, access2),
-			Set.of(egress1, egress2)
-		);
+		DrtRequest request = createRequest(List.of(access1, access2), List.of(egress1, egress2));
 
 		// Test with different vehicle schedule sizes
 		VehicleEntry vehicle2Stops = createVehicle(2);
@@ -263,10 +245,7 @@ public class InsertionGeneratorMultiLinkTest {
 		Link egress1 = link("egress1");
 		Link egress2 = link("egress2");
 
-		DrtRequest request = createRequest(
-			Set.of(access1, access2),
-			Set.of(egress1, egress2)
-		);
+		DrtRequest request = createRequest(List.of(access1, access2), List.of(egress1, egress2));
 
 		VehicleEntry vehicle = createVehicle(3);
 
@@ -292,17 +271,13 @@ public class InsertionGeneratorMultiLinkTest {
 
 	// Helper methods
 
-	private DrtRequest createRequest(Set<Link> accessLinks, Set<Link> egressLinks) {
-		Link fromLink = accessLinks.iterator().next();
-		Link toLink = egressLinks.iterator().next();
+	private DrtRequest createRequest(List<Link> accessLinks, List<Link> egressLinks) {
 
 		return DrtRequest.newBuilder()
 			.id(Id.create("request", Request.class))
 			.mode("drt")
-			.fromLink(fromLink)
-			.toLink(toLink)
-			.accessLinkCandidates(accessLinks)
-			.egressLinkCandidates(egressLinks)
+			.fromLinks(accessLinks)
+			.toLinks(egressLinks)
 			.earliestDepartureTime(0)
 			.submissionTime(0)
 			.passengerIds(List.of(Id.createPersonId("person")))

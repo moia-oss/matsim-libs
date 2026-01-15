@@ -33,10 +33,7 @@ import org.matsim.core.router.util.TravelTime;
 import org.matsim.testcases.MatsimTestUtils;
 import org.matsim.testcases.fakes.FakeLink;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.matsim.contrib.dvrp.path.VrpPaths.NODE_TRANSITION_TIME;
@@ -113,7 +110,7 @@ public class DefaultRequestInsertionSchedulerTest {
         vehicle.getSchedule().addTask(new DrtDriveTask(vrpPath, DrtDriveTask.TYPE));
 
         DefaultDrtStopTask stopTask0 = new DefaultDrtStopTask(R1_PU_TIME - STOP_DURATION, R1_PU_TIME, from1);
-        AcceptedDrtRequest acceptedExistingRequest = AcceptedDrtRequest.createFromOriginalRequest(existingRequest1, 60);
+        AcceptedDrtRequest acceptedExistingRequest = AcceptedDrtRequest.createFromOriginalRequest(existingRequest1, 60, existingRequest1.getFromLink(), existingRequest1.getToLink());
         stopTask0.addPickupRequest(acceptedExistingRequest);
         vehicle.getSchedule().addTask(stopTask0);
 
@@ -129,7 +126,7 @@ public class DefaultRequestInsertionSchedulerTest {
         vehicle.getSchedule().addTask(new DrtDriveTask(vrpPath3, DrtDriveTask.TYPE));
 
         DefaultDrtStopTask stopTask2 = new DefaultDrtStopTask(stopTask1.getEndTime() + longPath.travelTime + 10., stopTask1.getEndTime() + longPath.travelTime + STOP_DURATION, to2);
-        AcceptedDrtRequest acceptedExistingRequest2 = AcceptedDrtRequest.createFromOriginalRequest(existingRequest2, 60);
+        AcceptedDrtRequest acceptedExistingRequest2 = AcceptedDrtRequest.createFromOriginalRequest(existingRequest2, 60, existingRequest2.getFromLink(), existingRequest2.getToLink());
         stopTask2.addDropoffRequest(acceptedExistingRequest2);
         vehicle.getSchedule().addTask(stopTask2);
 
@@ -147,7 +144,7 @@ public class DefaultRequestInsertionSchedulerTest {
                 detourTimeInfo);
 
         RequestInsertionScheduler.PickupDropoffTaskPair pickupDropoffTaskPair =
-                insertionScheduler.scheduleRequest(AcceptedDrtRequest.createFromOriginalRequest(newRequest, 60), insertion);
+                insertionScheduler.scheduleRequest(AcceptedDrtRequest.createFromOriginalRequest(newRequest, 60, newRequest.getFromLink(), newRequest.getToLink()), insertion);
 
         ScheduleInfo actualScheduleInfo = getScheduleInfo(vehicle.getSchedule());
         ScheduleInfo expectedScheduleInfo = ScheduleInfo.newBuilder()
@@ -247,8 +244,8 @@ public class DefaultRequestInsertionSchedulerTest {
                 )
                 .fromLink(fromLink)
                 .toLink(toLink)
-                .accessLinkCandidates(Set.of(fromLink))
-                .egressLinkCandidates(Set.of(toLink))
+                .fromLinks(List.of(fromLink))
+                .toLinks(List.of(toLink))
                 .mode(mode)
                 .build();
     }

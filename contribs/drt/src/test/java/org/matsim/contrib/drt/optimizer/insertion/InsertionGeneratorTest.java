@@ -83,8 +83,6 @@ public class InsertionGeneratorTest {
 	private final DrtRequest drtRequest = DrtRequest.newBuilder()
 			.fromLink(fromLink)
 			.toLink(toLink)
-			.accessLinkCandidates(Set.of(fromLink))
-			.egressLinkCandidates(Set.of(toLink))
 			.passengerIds(
 					List.of(Id.createPersonId("person"))
 			)
@@ -102,8 +100,6 @@ public class InsertionGeneratorTest {
 						Id.createPersonId("person2")
 				)
 			)
-			.accessLinkCandidates(Set.of(fromLink))
-			.egressLinkCandidates(Set.of(toLink))
 			.load(LOAD_TYPE.fromInt(2))
 			.earliestDepartureTime(0.)
 			.constraints(DRT_ROUTE_CONSTRAINTS)
@@ -121,8 +117,6 @@ public class InsertionGeneratorTest {
 						Id.createPersonId("person5")
 				)
 			)
-			.accessLinkCandidates(Set.of(fromLink))
-			.egressLinkCandidates(Set.of(toLink))
 			.load(LOAD_TYPE.fromInt(5))
 			.earliestDepartureTime(0.)
 			.constraints(DRT_ROUTE_CONSTRAINTS)
@@ -142,8 +136,6 @@ public class InsertionGeneratorTest {
 							false
 					)
 			).load(LOAD_TYPE.getEmptyLoad())
-			.accessLinkCandidates(Set.of(fromLink))
-			.egressLinkCandidates(Set.of(toLink))
 			.build();
 
 	private final Link depotLink = link("depot");

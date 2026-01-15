@@ -57,7 +57,7 @@ public class TeleportingPassengerEngineTest {
 		double travelTime = 999;
 		double travelDistance = 555;
 		TeleportedRouteCalculator teleportedRouteCalculator = request -> {
-			Route route = new GenericRouteImpl(request.getFromLink().getId(), request.getToLink().getId());
+			Route route = new GenericRouteImpl(request.getFromLinks().iterator().next().getId(), request.getToLinks().iterator().next().getId());
 			route.setTravelTime(travelTime);
 			route.setDistance(travelDistance);
 			return route;
@@ -73,7 +73,8 @@ public class TeleportingPassengerEngineTest {
 				new PersonDepartureEvent(departureTime, fixture.PERSON_ID, fixture.linkAB.getId(), MODE, MODE),
 				new PassengerWaitingEvent(departureTime, MODE, requestId, List.of(fixture.PERSON_ID)),
 				new PassengerRequestScheduledEvent(departureTime, MODE, requestId, List.of(fixture.PERSON_ID), null, departureTime,
-						arrivalTime), new PassengerPickedUpEvent(departureTime, MODE, requestId, fixture.PERSON_ID, null),
+						arrivalTime, fixture.linkAB.getId(), fixture.linkBA.getId()),
+				new PassengerPickedUpEvent(departureTime, MODE, requestId, fixture.PERSON_ID, null),
 				new PassengerDroppedOffEvent(arrivalTime, MODE, requestId, fixture.PERSON_ID, null),
 				new TeleportationArrivalEvent(arrivalTime, fixture.PERSON_ID, travelDistance, MODE),
 				new PersonArrivalEvent(arrivalTime, fixture.PERSON_ID, fixture.linkBA.getId(), MODE),

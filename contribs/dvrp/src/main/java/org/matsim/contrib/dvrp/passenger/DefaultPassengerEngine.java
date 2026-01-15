@@ -174,8 +174,8 @@ public final class DefaultPassengerEngine implements PassengerEngine, PassengerR
 		PassengerRequest request = advanceRequestProvider.retrieveRequest(representative, leg);
 
 		if (request == null) { // immediate request
-			request = requestCreator.createRequest(tracker.createRequestId(),
-					groupIds, routes, getLink(fromLinkId), getLink(toLinkId), now, now);
+			request = requestCreator.createRequest(tracker.createRequestId(), groupIds, routes, List.of(getLink(fromLinkId)),
+					List.of(getLink(toLinkId)), now, now);
 
 			// must come before validateAndSubmitRequest (to come before rejection event)
 			eventsManager.processEvent(new PassengerWaitingEvent(now, mode, request.getId(), groupIds));

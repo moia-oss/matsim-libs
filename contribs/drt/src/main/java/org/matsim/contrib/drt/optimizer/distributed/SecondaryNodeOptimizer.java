@@ -1,6 +1,7 @@
 package org.matsim.contrib.drt.optimizer.distributed;
 
 import org.matsim.api.core.v01.Message;
+import org.matsim.api.core.v01.network.Link;
 import org.matsim.contrib.drt.optimizer.DrtOptimizer;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
@@ -80,10 +81,8 @@ public class SecondaryNodeOptimizer implements DrtOptimizer, MobsimAfterSimStepL
 			request.getConstraints(),
 			request.getPassengerIds(),
 			request.getMode(),
-			request.getFromLink().getId(),
-			request.getToLink().getId(),
-			request.getAccessLinkCandidates(),
-			request.getEgressLinkCandidates()
+			request.getFromLinks().stream().map(Link::getId).toList(),
+			request.getToLinks().stream().map(Link::getId).toList()
 		);
 	}
 }

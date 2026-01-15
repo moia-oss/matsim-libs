@@ -24,6 +24,7 @@ import java.util.*;
 
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.events.GenericEvent;
+import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.population.Person;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.optimizer.Request;
@@ -32,6 +33,7 @@ import static org.matsim.api.core.v01.events.HasPersonId.ATTRIBUTE_PERSON;
 
 /**
  * @author michalm
+ * @author nkuehnel
  */
 public class PassengerRequestScheduledEvent extends AbstractPassengerRequestEvent {
 	public static final String EVENT_TYPE = "PassengerRequest scheduled";
@@ -39,20 +41,26 @@ public class PassengerRequestScheduledEvent extends AbstractPassengerRequestEven
 	public static final String ATTRIBUTE_VEHICLE = "vehicle";
 	public static final String ATTRIBUTE_PICKUP_TIME = "pickupTime";
 	public static final String ATTRIBUTE_DROPOFF_TIME = "dropoffTime";
+	public static final String ATTRIBUTE_PICKUP_LINK = "pickupLink";
+	public static final String ATTRIBUTE_DROPOFF_LINK = "dropoffLink";
 
 	private final Id<DvrpVehicle> vehicleId;
 	private final double pickupTime;
 	private final double dropoffTime;
+	private final Id<Link> pickupLink;
+	private final Id<Link> dropoffLink;
 
 	/**
-	 * An event processed upon request submission.
+	 * An event processed upon request scheduling.
 	 */
 	public PassengerRequestScheduledEvent(double time, String mode, Id<Request> requestId, List<Id<Person>> personIds,
-			Id<DvrpVehicle> vehicleId, double pickupTime, double dropoffTime) {
+			Id<DvrpVehicle> vehicleId, double pickupTime, double dropoffTime, Id<Link> pickupLink, Id<Link> dropoffLink) {
 		super(time, mode, requestId, personIds);
 		this.vehicleId = vehicleId;
 		this.pickupTime = pickupTime;
 		this.dropoffTime = dropoffTime;
+		this.pickupLink = pickupLink;
+		this.dropoffLink = dropoffLink;
 	}
 
 	@Override
@@ -87,6 +95,8 @@ public class PassengerRequestScheduledEvent extends AbstractPassengerRequestEven
 		attr.put(ATTRIBUTE_VEHICLE, vehicleId + "");
 		attr.put(ATTRIBUTE_PICKUP_TIME, pickupTime + "");
 		attr.put(ATTRIBUTE_DROPOFF_TIME, dropoffTime + "");
+		attr.put(ATTRIBUTE_PICKUP_LINK, pickupLink + "");
+		attr.put(ATTRIBUTE_DROPOFF_LINK, dropoffLink + "");
 		return attr;
 	}
 
@@ -103,6 +113,8 @@ public class PassengerRequestScheduledEvent extends AbstractPassengerRequestEven
 		Id<DvrpVehicle> vehicleId = Id.create(attributes.get(ATTRIBUTE_VEHICLE), DvrpVehicle.class);
 		double pickupTime = Double.parseDouble(attributes.get(ATTRIBUTE_PICKUP_TIME));
 		double dropoffTime = Double.parseDouble(attributes.get(ATTRIBUTE_DROPOFF_TIME));
-		return new PassengerRequestScheduledEvent(time, mode, requestId, personIds, vehicleId, pickupTime, dropoffTime);
+		Id<Link> pickupLink = Id.createLinkId(attributes.get(ATTRIBUTE_PICKUP_LINK));
+		Id<Link> dropoffLink = Id.createLinkId(attributes.get(ATTRIBUTE_DROPOFF_LINK));
+		return new PassengerRequestScheduledEvent(time, mode, requestId, personIds, vehicleId, pickupTime, dropoffTime, pickupLink, dropoffLink);
 	}
 }

@@ -28,7 +28,8 @@ import org.matsim.contrib.drt.optimizer.constraints.DrtRouteConstraints;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.dvrp.optimizer.Request;
 
-import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -52,8 +53,8 @@ public class DrtRequestInsertionRetryQueueTest {
 							false
 					)
 			)
-			.accessLinkCandidates(Set.of())
-			.egressLinkCandidates(Set.of())
+			.fromLinks(List.of())
+			.toLinks(List.of())
 			.build();
 
 	@Test

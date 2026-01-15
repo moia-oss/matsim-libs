@@ -25,7 +25,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
@@ -71,8 +73,9 @@ public class DvrpEventsReadersTest {
 	}
 
 	private final List<Event> dvrpEvents = List.of(
-			new PassengerRequestSubmittedEvent(0, mode, request, List.of(person), fromLink, toLink, null, "1"),
-			new PassengerRequestScheduledEvent(1, mode, request, List.of(person), vehicle, 100, 200),
+			new PassengerRequestSubmittedEvent(0, mode, request, List.of(person),
+					List.of(fromLink), List.of(toLink), null, "1"),
+			new PassengerRequestScheduledEvent(1, mode, request, List.of(person), vehicle, 100, 200, fromLink, toLink),
 			new PassengerRequestRejectedEvent(2, mode, request, List.of(person), "cause_1"),
 			new PassengerPickedUpEvent(111, mode, request, person, vehicle),
 			new PassengerDroppedOffEvent(222, mode, request, person, vehicle),

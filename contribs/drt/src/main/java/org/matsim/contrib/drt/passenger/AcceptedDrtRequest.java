@@ -34,7 +34,8 @@ import java.util.List;
  * @author Michal Maciejewski (michalm)
  */
 public class AcceptedDrtRequest {
-	public static AcceptedDrtRequest createFromOriginalRequest(DrtRequest request, double pickupDuration, double dropoffDuration) {
+	public static AcceptedDrtRequest createFromOriginalRequest(DrtRequest request, double pickupDuration, double dropoffDuration,
+															   Link pickupLink, Link dropoffLink) {
 		return AcceptedDrtRequest.newBuilder()
 				.request(request)
 				.earliestStartTime(request.getEarliestStartTime())
@@ -43,11 +44,21 @@ public class AcceptedDrtRequest {
 				.maxRideDuration(request.getConstraints().maxRideDuration())
 				.dropoffDuration(pickupDuration)
 				.dropoffDuration(dropoffDuration)
+				.pickupLink(pickupLink)
+				.dropoffLink(dropoffLink)
 				.build();
 	}
 
+	public static AcceptedDrtRequest createFromOriginalRequest(DrtRequest request, double pickupDuration, Link pickupLink, Link dropoffLink) {
+		return createFromOriginalRequest(request, pickupDuration, 0.0, pickupLink, dropoffLink);
+	}
+
+	/**
+	 * Please use with dedicated pickup/dropoff link
+	 */
+	@Deprecated
 	public static AcceptedDrtRequest createFromOriginalRequest(DrtRequest request, double pickupDuration) {
-		return createFromOriginalRequest(request, pickupDuration, 0.0);
+		return createFromOriginalRequest(request, pickupDuration, 0.0, request.getFromLink(), request.getToLink());
 	}
 
 	private final DrtRequest request;
@@ -56,6 +67,10 @@ public class AcceptedDrtRequest {
 	private final double latestStartTime;
 	private final double latestArrivalTime;
 	private final double maxRideDuration;
+
+	private final Link pickupLink;
+	private final Link dropoffLink;
+
 	private final double pickupDuration;
 	private final double dropoffDuration;
 	private final RequestTiming requestTiming;
@@ -69,6 +84,8 @@ public class AcceptedDrtRequest {
 		pickupDuration = builder.pickupDuration;
 		dropoffDuration = builder.dropoffDuration;
 		requestTiming = new RequestTiming(builder.plannedPickupTime, builder.plannedDropoffTime);
+		pickupLink = builder.pickupLink;
+		dropoffLink = builder.dropoffLink;
 	}
 
 	public static Builder newBuilder() {
@@ -84,6 +101,8 @@ public class AcceptedDrtRequest {
 		builder.maxRideDuration = copy.getMaxRideDuration();
 		builder.pickupDuration = copy.getPickupDuration();
 		builder.dropoffDuration = copy.getDropoffDuration();
+		builder.pickupLink = copy.getPickupLink();
+		builder.dropoffLink = copy.getDropoffLink();
 		copy.requestTiming.getPlannedPickupTime().ifDefined(val -> builder.plannedPickupTime = val);
 		copy.requestTiming.getPlannedDropoffTime().ifDefined(val -> builder.plannedDropoffTime = val);
 		return builder;
@@ -125,12 +144,12 @@ public class AcceptedDrtRequest {
 		return request.getSubmissionTime();
 	}
 
-	public Link getFromLink() {
-		return request.getFromLink();
+	public Link getPickupLink() {
+		return pickupLink;
 	}
 
-	public Link getToLink() {
-		return request.getToLink();
+	public Link getDropoffLink() {
+		return dropoffLink;
 	}
 
 	public List<Id<Person>> getPassengerIds() {
@@ -156,6 +175,8 @@ public class AcceptedDrtRequest {
 				.add("earliestStartTime", earliestStartTime)
 				.add("latestStartTime", latestStartTime)
 				.add("latestArrivalTime", latestArrivalTime)
+				.add("pickupLink", pickupLink)
+				.add("dropoffLink", dropoffLink)
 				.toString();
 	}
 
@@ -169,6 +190,9 @@ public class AcceptedDrtRequest {
 		private double dropoffDuration;
 		private double plannedPickupTime = RequestTiming.UNDEFINED_TIME;
 		private double plannedDropoffTime = RequestTiming.UNDEFINED_TIME;
+
+		private Link pickupLink;
+		private Link dropoffLink;
 
 		private Builder() {
 		}
@@ -220,6 +244,16 @@ public class AcceptedDrtRequest {
 
 		public AcceptedDrtRequest build() {
 			return new AcceptedDrtRequest(this);
+		}
+
+		public Builder pickupLink(Link pickupLink) {
+			this.pickupLink = pickupLink;
+			return this;
+		}
+
+		public Builder dropoffLink(Link dropoffLink) {
+			this.dropoffLink = dropoffLink;
+			return this;
 		}
 	}
 }

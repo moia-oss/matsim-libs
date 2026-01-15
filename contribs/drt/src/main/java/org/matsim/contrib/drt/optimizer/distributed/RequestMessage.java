@@ -8,7 +8,6 @@ import org.matsim.contrib.drt.optimizer.constraints.DrtRouteConstraints;
 import org.matsim.contrib.dvrp.optimizer.Request;
 
 import java.util.List;
-import java.util.Set;
 
 public record RequestMessage(
 	Id<Request> id,
@@ -16,9 +15,7 @@ public record RequestMessage(
 	DrtRouteConstraints constraints,
 	List<Id<Person>> passengerIds,
 	String mode,
-	Id<Link> fromLink,
-	Id<Link> toLink,
-	Set<Link> accessLinkCandidates,
-	Set<Link> egressLinkCandidates
+	List<Id<Link>> fromLinks,
+	List<Id<Link>> toLinks
 ) implements Message {
 }

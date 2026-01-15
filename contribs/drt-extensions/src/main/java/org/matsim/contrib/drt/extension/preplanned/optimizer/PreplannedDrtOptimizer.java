@@ -128,7 +128,7 @@ public class PreplannedDrtOptimizer implements DrtOptimizer {
 		//TODO in the current implementation we do not know the scheduled pickup and dropoff times
 		eventsManager.processEvent(
 				new PassengerRequestScheduledEvent(timer.getTimeOfDay(), drtRequest.getMode(), drtRequest.getId(),
-						drtRequest.getPassengerIds(), vehicleId, Double.NaN, Double.NaN));
+						drtRequest.getPassengerIds(), vehicleId, Double.NaN, Double.NaN, drtRequest.getFromLink().getId(), drtRequest.getToLink().getId()));
 	}
 
 	@Override

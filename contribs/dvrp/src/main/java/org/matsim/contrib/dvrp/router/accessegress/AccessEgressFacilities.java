@@ -2,7 +2,7 @@ package org.matsim.contrib.dvrp.router.accessegress;
 
 import org.matsim.facilities.Facility;
 
-import java.util.Set;
+import java.util.List;
 
-public record AccessEgressFacilities(Set<Facility> access, Set<Facility> egress) {
+public record AccessEgressFacilities(List<Facility> access, List<Facility> egress) {
 }

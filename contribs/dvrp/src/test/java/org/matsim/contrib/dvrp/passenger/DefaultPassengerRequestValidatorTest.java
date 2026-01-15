@@ -25,8 +25,7 @@ import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.testcases.fakes.FakeLink;
 
-import java.util.Collections;
-import java.util.Set;
+import java.util.*;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -45,10 +44,8 @@ public class DefaultPassengerRequestValidatorTest {
 	void testValidRequest_singleLinks() {
 		// Traditional case: single access and egress link, different from each other
 		PassengerRequest request = createRequest(
-			link("from"),
-			link("to"),
-			Set.of(link("from")),
-			Set.of(link("to"))
+			List.of(link("from")),
+			List.of(link("to"))
 		);
 
 		Set<String> errors = validator.validateRequest(request);
@@ -58,42 +55,21 @@ public class DefaultPassengerRequestValidatorTest {
 	@Test
 	void testValidRequest_multipleLinks() {
 		// Dynamic stop selection: multiple access and egress candidates
-		Link from = link("from");
-		Link to = link("to");
-
 		PassengerRequest request = createRequest(
-			from,
-			to,
-			Set.of(link("access1"), link("access2"), link("access3")),
-			Set.of(link("egress1"), link("egress2"), link("egress3"))
+			List.of(link("access1"), link("access2"), link("access3")),
+			List.of(link("egress1"), link("egress2"), link("egress3"))
 		);
 
 		Set<String> errors = validator.validateRequest(request);
 		assertThat(errors).isEmpty();
 	}
 
-	@Test
-	void testInvalidRequest_sameFromToLink() {
-		// Traditional validation: fromLink equals toLink
-		Link sameLink = link("same");
-		PassengerRequest request = createRequest(
-			sameLink,
-			sameLink,
-			Set.of(link("access1"), link("access2")),
-			Set.of(link("egress1"), link("egress2"))
-		);
-
-		Set<String> errors = validator.validateRequest(request);
-		assertThat(errors).containsExactly(DefaultPassengerRequestValidator.EQUAL_FROM_LINK_AND_TO_LINK_CAUSE);
-	}
 
 	@Test
 	void testInvalidRequest_emptyAccessLinks() {
 		PassengerRequest request = createRequest(
-			link("from"),
-			link("to"),
-			Collections.emptySet(), // Empty access links
-			Set.of(link("egress1"))
+			Collections.emptyList(), // Empty access links
+			List.of(link("egress1"))
 		);
 
 		Set<String> errors = validator.validateRequest(request);
@@ -103,10 +79,8 @@ public class DefaultPassengerRequestValidatorTest {
 	@Test
 	void testInvalidRequest_emptyEgressLinks() {
 		PassengerRequest request = createRequest(
-			link("from"),
-			link("to"),
-			Set.of(link("access1")),
-			Collections.emptySet() // Empty egress links
+			List.of(link("access1")),
+			Collections.emptyList() // Empty egress links
 		);
 
 		Set<String> errors = validator.validateRequest(request);
@@ -116,10 +90,8 @@ public class DefaultPassengerRequestValidatorTest {
 	@Test
 	void testInvalidRequest_emptyBoth() {
 		PassengerRequest request = createRequest(
-			link("from"),
-			link("to"),
-			Collections.emptySet(),
-			Collections.emptySet()
+			Collections.emptyList(),
+			Collections.emptyList()
 		);
 
 		Set<String> errors = validator.validateRequest(request);
@@ -135,14 +107,12 @@ public class DefaultPassengerRequestValidatorTest {
 		// This would generate zero valid insertions (same-link filtering)
 		Link sameLink = link("same");
 		PassengerRequest request = createRequest(
-			link("from"),
-			link("to"),
-			Set.of(sameLink),
-			Set.of(sameLink)
+			List.of(sameLink),
+			List.of(sameLink)
 		);
 
 		Set<String> errors = validator.validateRequest(request);
-		assertThat(errors).contains(DefaultPassengerRequestValidator.EQUAL_ACCESS_EGRESS_LINKS);
+		assertThat(errors).contains(DefaultPassengerRequestValidator.EQUAL_FROM_LINK_AND_TO_LINK_CAUSE);
 	}
 
 	@Test
@@ -150,10 +120,8 @@ public class DefaultPassengerRequestValidatorTest {
 		// Valid: Multiple links with some overlap (but not single equal link)
 		Link shared = link("shared");
 		PassengerRequest request = createRequest(
-			link("from"),
-			link("to"),
-			Set.of(shared, link("access1")),
-			Set.of(shared, link("egress1"))
+			List.of(shared, link("access1")),
+			List.of(shared, link("egress1"))
 		);
 
 		Set<String> errors = validator.validateRequest(request);
@@ -164,17 +132,13 @@ public class DefaultPassengerRequestValidatorTest {
 	@Test
 	void testInvalidRequest_multipleErrors() {
 		// Combination of errors: same fromLink/toLink AND empty access/egress
-		Link sameLink = link("same");
 		PassengerRequest request = createRequest(
-			sameLink,
-			sameLink,
-			Collections.emptySet(),
-			Collections.emptySet()
+			Collections.emptyList(),
+			Collections.emptyList()
 		);
 
 		Set<String> errors = validator.validateRequest(request);
 		assertThat(errors).containsExactlyInAnyOrder(
-			DefaultPassengerRequestValidator.EQUAL_FROM_LINK_AND_TO_LINK_CAUSE,
 			DefaultPassengerRequestValidator.EMPTY_ACCESS_LINKS,
 			DefaultPassengerRequestValidator.EMPTY_EGRESS_LINKS
 		);
@@ -184,10 +148,8 @@ public class DefaultPassengerRequestValidatorTest {
 	void testValidRequest_singleAccessMultipleEgress() {
 		// Edge case: single access, multiple egress - should be valid
 		PassengerRequest request = createRequest(
-			link("from"),
-			link("to"),
-			Set.of(link("access1")),
-			Set.of(link("egress1"), link("egress2"), link("egress3"))
+			List.of(link("access1")),
+			List.of(link("egress1"), link("egress2"), link("egress3"))
 		);
 
 		Set<String> errors = validator.validateRequest(request);
@@ -198,10 +160,8 @@ public class DefaultPassengerRequestValidatorTest {
 	void testValidRequest_multipleAccessSingleEgress() {
 		// Edge case: multiple access, single egress - should be valid
 		PassengerRequest request = createRequest(
-			link("from"),
-			link("to"),
-			Set.of(link("access1"), link("access2"), link("access3")),
-			Set.of(link("egress1"))
+			List.of(link("access1"), link("access2"), link("access3")),
+			List.of(link("egress1"))
 		);
 
 		Set<String> errors = validator.validateRequest(request);
@@ -210,12 +170,10 @@ public class DefaultPassengerRequestValidatorTest {
 
 	// Helper methods
 
-	private PassengerRequest createRequest(Link fromLink, Link toLink, Set<Link> accessLinks, Set<Link> egressLinks) {
+	private PassengerRequest createRequest(List<Link> accessLinks, List<Link> egressLinks) {
 		PassengerRequest request = mock(PassengerRequest.class);
-		when(request.getFromLink()).thenReturn(fromLink);
-		when(request.getToLink()).thenReturn(toLink);
-		when(request.getAccessLinkCandidates()).thenReturn(accessLinks);
-		when(request.getEgressLinkCandidates()).thenReturn(egressLinks);
+		when(request.getFromLinks()).thenReturn(accessLinks);
+		when(request.getToLinks()).thenReturn(egressLinks);
 		return request;
 	}
 

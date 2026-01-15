@@ -69,8 +69,6 @@ public class SingleInsertionDetourPathCalculatorTest {
 	private final DrtRequest request = DrtRequest.newBuilder()
 			.fromLink(pickupLink)
 			.toLink(dropoffLink)
-			.accessLinkCandidates(Set.of(pickupLink))
-			.egressLinkCandidates(Set.of(dropoffLink))
 			.earliestDepartureTime(100)
 			.constraints(
 					new DrtRouteConstraints(
@@ -100,8 +98,8 @@ public class SingleInsertionDetourPathCalculatorTest {
 		var pathToDropoff = mockCalcLeastCostPath(beforeDropoffLink, dropoffLink, request.getLatestArrivalTime(), 33);
 		var pathFromDropoff = mockCalcLeastCostPath(dropoffLink, afterDropoffLink, request.getLatestArrivalTime(), 44);
 
-		var pickup = insertionPoint(waypoint(beforePickupLink), waypoint(afterPickupLink));
-		var dropoff = insertionPoint(waypoint(beforeDropoffLink), waypoint(afterDropoffLink));
+		var pickup = insertionPoint(waypoint(beforePickupLink), waypoint(pickupLink), waypoint(afterPickupLink));
+		var dropoff = insertionPoint(waypoint(beforeDropoffLink), waypoint(dropoffLink), waypoint(afterDropoffLink));
 		var insertion = new Insertion(null, pickup, dropoff, integerLoadType.fromInt(1));
 
 		var insertionWithDetourData = detourPathCalculator.calculatePaths(request, insertion);
@@ -119,8 +117,8 @@ public class SingleInsertionDetourPathCalculatorTest {
 		var pathFromPickup = mockCalcLeastCostPath(pickupLink, dropoffLink, request.getEarliestStartTime(), 22);
 
 		//use specific class of waypoint to allow for detecting the special case
-		var pickup = insertionPoint(waypoint(beforePickupLink), waypoint(dropoffLink, Dropoff.class));
-		var dropoff = insertionPoint(waypoint(pickupLink, Pickup.class), waypoint(dropoffLink, End.class));
+		var pickup = insertionPoint(waypoint(beforePickupLink), waypoint(pickupLink), waypoint(dropoffLink, Dropoff.class));
+		var dropoff = insertionPoint(waypoint(pickupLink, Pickup.class), waypoint(dropoffLink), waypoint(dropoffLink, End.class));
 		var insertion = new Insertion(null, pickup, dropoff, integerLoadType.fromInt(1));
 
 		var insertionWithDetourData = detourPathCalculator.calculatePaths(request, insertion);
@@ -135,8 +133,8 @@ public class SingleInsertionDetourPathCalculatorTest {
 
 	@Test
 	void calculatePaths_noDetours() {
-		var pickup = insertionPoint(waypoint(pickupLink), waypoint(pickupLink));
-		var dropoff = insertionPoint(waypoint(dropoffLink), waypoint(dropoffLink));
+		var pickup = insertionPoint(waypoint(pickupLink), waypoint(pickupLink), waypoint(pickupLink));
+		var dropoff = insertionPoint(waypoint(dropoffLink), waypoint(dropoffLink), waypoint(dropoffLink));
 		var insertion = new Insertion(null, pickup, dropoff, integerLoadType.fromInt(1));
 
 		var insertionWithDetourData = detourPathCalculator.calculatePaths(request, insertion);
@@ -167,8 +165,8 @@ public class SingleInsertionDetourPathCalculatorTest {
 		return new FakeNode(Id.createNodeId(id));
 	}
 
-	private InsertionPoint insertionPoint(Waypoint beforeWaypoint, Waypoint afterWaypoint) {
-		return new InsertionPoint(-1, beforeWaypoint, null, afterWaypoint);
+	private InsertionPoint insertionPoint(Waypoint beforeWaypoint, Waypoint newWaypoint, Waypoint afterWaypoint) {
+		return new InsertionPoint(-1, beforeWaypoint, newWaypoint, afterWaypoint);
 	}
 
 	private Waypoint waypoint(Link afterLink) {

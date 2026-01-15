@@ -64,7 +64,7 @@ public class RoutingTimeStructureTest {
 
 		AccessEgressFacilityFinder stopFinder = mock(AccessEgressFacilityFinder.class);
 		when(stopFinder.findFacilities(eq(fromFacility), eq(toFacility), any())).thenReturn(
-				Optional.of(new AccessEgressFacilities(Set.of(accessFacility), Set.of(egressFacility))));
+				Optional.of(new AccessEgressFacilities(List.of(accessFacility), List.of(egressFacility))));
 
 		RoutingModule accessRouter = mock(RoutingModule.class);
 		when(accessRouter.calcRoute(Mockito.any())).thenAnswer(iv -> {
@@ -124,7 +124,7 @@ public class RoutingTimeStructureTest {
 
 		AccessEgressFacilityFinder stopFinder = mock(AccessEgressFacilityFinder.class);
 		when(stopFinder.findFacilities(eq(fromFacility), eq(toFacility), any())).thenReturn(
-			Optional.of(new AccessEgressFacilities(Set.of(accessFacility), Set.of(egressFacility))));
+			Optional.of(new AccessEgressFacilities(List.of(accessFacility), List.of(egressFacility))));
 
 		RoutingModule accessRouter = mock(RoutingModule.class);
 		when(accessRouter.calcRoute(Mockito.any())).thenAnswer(iv -> {

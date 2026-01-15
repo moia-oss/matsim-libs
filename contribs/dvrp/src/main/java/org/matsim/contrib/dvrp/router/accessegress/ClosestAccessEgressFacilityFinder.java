@@ -51,26 +51,33 @@ public class ClosestAccessEgressFacilityFinder implements AccessEgressFacilityFi
 
 	@Override
 	public Optional<AccessEgressFacilities> findFacilities(Facility fromFacility, Facility toFacility, Attributes tripAttributes) {
-		Set<Facility> accessFacilities = findClosestStops(fromFacility);
+		List<Facility> accessFacilities = findClosestStops(fromFacility);
 		if (accessFacilities.isEmpty()) {
 			return Optional.empty();
 		}
 
-		Set<Facility> egressFacility = findClosestStops(toFacility);
+		List<Facility> egressFacility = findClosestStops(toFacility);
 		return egressFacility.isEmpty() ?
 				Optional.empty() :
 				Optional.of(new AccessEgressFacilities(accessFacilities, egressFacility));
 	}
 
-	private Set<Facility> findClosestStops(Facility facility) {
+	private List<Facility> findClosestStops(Facility facility) {
 		Coord coord = getFacilityCoord(facility, network);
-		Collection<Facility> closestStops = (Collection<Facility>) facilityQuadTree.getDisk(coord.getX(), coord.getY(), maxDistance);
 
-		Set<Facility> nearestStopsSorted = closestStops.stream()
-			.sorted(Comparator.comparingDouble(o -> CoordUtils.calcEuclideanDistance(coord, o.getCoord())))
-			.limit(numberOfAccessEgressCandidates)
-			.collect(Collectors.toSet());
-		return nearestStopsSorted;
+		if(numberOfAccessEgressCandidates == 1) {
+			Facility closestStop = facilityQuadTree.getClosest(coord.getX(), coord.getY());
+			double closestStopDistance = CoordUtils.calcEuclideanDistance(coord, closestStop.getCoord());
+			return closestStopDistance > maxDistance ? List.of() : List.of(closestStop);
+		} else {
+			Collection<Facility> closestStops = (Collection<Facility>) facilityQuadTree.getDisk(coord.getX(), coord.getY(), maxDistance);
+
+			List<Facility> nearestStopsSorted = closestStops.stream()
+					.sorted(Comparator.comparingDouble(o -> CoordUtils.calcEuclideanDistance(coord, o.getCoord())))
+					.limit(numberOfAccessEgressCandidates)
+					.toList();
+			return nearestStopsSorted;
+		}
 	}
 
 	static Coord getFacilityCoord(Facility facility, Network network) {

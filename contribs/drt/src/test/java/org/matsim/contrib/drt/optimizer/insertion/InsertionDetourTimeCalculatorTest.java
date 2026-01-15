@@ -58,8 +58,7 @@ public class InsertionDetourTimeCalculatorTest {
 
 	private final Link fromLink = link("from");
 	private final Link toLink = link("to");
-	private final DrtRequest drtRequest = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink)
-			.accessLinkCandidates(Set.of(fromLink)).egressLinkCandidates(Set.of(toLink)).build();
+	private final DrtRequest drtRequest = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink).build();
 	private final IntegerLoadType loadType = new IntegerLoadType("passengers");
 
 	@Test

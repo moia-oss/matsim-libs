@@ -41,6 +41,7 @@ import org.matsim.contrib.drt.optimizer.insertion.UnplannedRequestInserter;
 import org.matsim.contrib.drt.optimizer.insertion.parallel.partitioner.RequestData;
 import org.matsim.contrib.drt.optimizer.insertion.parallel.partitioner.requests.RequestsPartitioner;
 import org.matsim.contrib.drt.optimizer.insertion.parallel.partitioner.vehicles.VehicleEntryPartitioner;
+import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
 import org.matsim.contrib.drt.passenger.DrtOfferAcceptor;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
@@ -323,16 +324,18 @@ public class ParallelUnplannedRequestInserter implements UnplannedRequestInserte
 		double pickupDuration = stopDurationProvider.calcPickupDuration(vehicle, req);
 		double dropoffDuration = stopDurationProvider.calcDropoffDuration(vehicle, req);
 
-		var acceptedRequest = drtOfferAcceptor.acceptDrtOffer(req,
+		var maybeAcceptedRequest = drtOfferAcceptor.acceptDrtOffer(req,
 			insertion.detourTimeInfo.pickupDetourInfo.requestPickupTime,
 			insertion.detourTimeInfo.dropoffDetourInfo.requestDropoffTime,
+			insertion.insertion.pickup.newWaypoint.getLink(), insertion.insertion.dropoff.newWaypoint.getLink(),
 			pickupDuration, dropoffDuration);
 
-		if (acceptedRequest.isPresent()) {
-			var pickupDropoffTaskPair = insertionScheduler.scheduleRequest(acceptedRequest.get(), insertion);
+		if (maybeAcceptedRequest.isPresent()) {
+			AcceptedDrtRequest acceptedRequest = maybeAcceptedRequest.get();
+			var pickupDropoffTaskPair = insertionScheduler.scheduleRequest(acceptedRequest, insertion);
 
 			double expectedPickupTime = pickupDropoffTaskPair.pickupTask.getBeginTime();
-			expectedPickupTime = Math.max(expectedPickupTime, acceptedRequest.get().getEarliestStartTime());
+			expectedPickupTime = Math.max(expectedPickupTime, acceptedRequest.getEarliestStartTime());
 			expectedPickupTime += stopDurationProvider.calcPickupDuration(vehicle, req);
 
 			double expectedDropoffTime = pickupDropoffTaskPair.dropoffTask.getBeginTime();
@@ -340,7 +343,8 @@ public class ParallelUnplannedRequestInserter implements UnplannedRequestInserte
 
 			eventsManager.processEvent(
 				new PassengerRequestScheduledEvent(now, mode, req.getId(), req.getPassengerIds(), vehicle.getId(),
-					expectedPickupTime, expectedDropoffTime));
+					expectedPickupTime, expectedDropoffTime,
+						acceptedRequest.getPickupLink().getId(), acceptedRequest.getDropoffLink().getId()));
 			return Optional.of(vehicle);
 		} else {
 			retryOrReject(req, now, OFFER_REJECTED_CAUSE);
@@ -353,7 +357,10 @@ public class ParallelUnplannedRequestInserter implements UnplannedRequestInserte
 			eventsManager.processEvent(
 				new PassengerRequestRejectedEvent(now, mode, req.getId(), req.getPassengerIds(),
 					cause));
-			LOG.debug("No insertion found for drt request {} with passenger ids={} fromLinkId={}", req, req.getPassengerIds().stream().map(Object::toString).collect(Collectors.joining(",")), req.getFromLink().getId());
+			LOG.debug("No insertion found for drt request {} with passenger ids={} fromLinkId={}",
+					req,
+					req.getPassengerIds().stream().map(Object::toString).collect(Collectors.joining(",")),
+					req.getFromLinks().stream().map(Object::toString).collect(Collectors.joining(",")));
 		}
 	}
 

@@ -19,6 +19,7 @@
  */
 package org.matsim.contrib.drt.passenger;
 
+import org.matsim.api.core.v01.network.Link;
 import org.matsim.core.mobsim.dsim.NodeSingleton;
 
 import java.util.Optional;
@@ -29,6 +30,7 @@ public class DefaultOfferAcceptor implements DrtOfferAcceptor {
 	@Override
 	public Optional<AcceptedDrtRequest> acceptDrtOffer(DrtRequest request,
 													   double departureTime, double arrivalTime,
+													   Link pickupLink, Link dropoffLink,
 													   double pickupDuration, double dropoffDuration) {
 		double updatedLatestStartTime = Math.min(departureTime
 			+ request.getConstraints().maxPickupDelay(), request.getLatestStartTime());
@@ -39,6 +41,8 @@ public class DefaultOfferAcceptor implements DrtOfferAcceptor {
 			.maxRideDuration(request.getConstraints().maxRideDuration())
 			.latestArrivalTime(request.getLatestArrivalTime())
 			.latestStartTime(updatedLatestStartTime)
+			.pickupLink(pickupLink)
+			.dropoffLink(dropoffLink)
 			.pickupDuration(pickupDuration)
 			.dropoffDuration(dropoffDuration)
 			.plannedPickupTime(departureTime)

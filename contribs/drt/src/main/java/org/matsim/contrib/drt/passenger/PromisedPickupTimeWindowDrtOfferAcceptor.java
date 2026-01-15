@@ -1,5 +1,7 @@
 package org.matsim.contrib.drt.passenger;
 
+import org.matsim.api.core.v01.network.Link;
+
 import java.util.Optional;
 
 /**
@@ -17,6 +19,7 @@ public final class PromisedPickupTimeWindowDrtOfferAcceptor implements DrtOfferA
 	@Override
 	public Optional<AcceptedDrtRequest> acceptDrtOffer(DrtRequest request,
 													   double departureTime, double arrivalTime,
+													   Link pickupLink, Link dropoffLink,
 													   double pickupDuration, double dropoffDuration) {
 		double updatedPickupTimeWindow = Math.min(departureTime
 				+ promisedPickupTimeWindow, request.getLatestStartTime());
@@ -26,6 +29,8 @@ public final class PromisedPickupTimeWindowDrtOfferAcceptor implements DrtOfferA
 				.earliestStartTime(request.getEarliestStartTime())
 				.latestArrivalTime(request.getLatestArrivalTime())
 				.latestStartTime(updatedPickupTimeWindow)
+				.pickupLink(pickupLink)
+				.dropoffLink(dropoffLink)
 				.pickupDuration(pickupDuration)
 				.dropoffDuration(dropoffDuration)
 				.build());

@@ -77,7 +77,7 @@ public class VehicleDataEntryFactoryImplTest {
 		StopWaypoint dropoffStop = stop(300, 340, 400, 430);
 
 		AcceptedDrtRequest mockRequest = AcceptedDrtRequest.newBuilder()
-				.request(DrtRequest.newBuilder().id(Id.create("mock", Request.class)).build())
+				.request(DrtRequest.newBuilder().id(Id.create("mock", Request.class)).fromLinks(List.of()).toLinks(List.of()).build())
 				.latestArrivalTime(340)
 				.maxRideDuration(200)
 				.earliestStartTime(100)
@@ -112,7 +112,7 @@ public class VehicleDataEntryFactoryImplTest {
 		StopWaypoint dropoffStop = stop(300, 340, 400, 430);
 
 		AcceptedDrtRequest mockRequest = AcceptedDrtRequest.newBuilder()
-				.request(DrtRequest.newBuilder().id(Id.create("mock", Request.class)).build())
+				.request(DrtRequest.newBuilder().id(Id.create("mock", Request.class)).fromLinks(List.of()).toLinks(List.of()).build())
 				.latestArrivalTime(340)
 				.maxRideDuration(210)
 				.earliestStartTime(100)
@@ -244,14 +244,14 @@ public class VehicleDataEntryFactoryImplTest {
 		StopWaypoint dropoffStopB = stop(350, 1350, 360, 1360);
 
 		AcceptedDrtRequest requestA = AcceptedDrtRequest.newBuilder()
-				.request(DrtRequest.newBuilder().id(Id.create("reqA", Request.class)).build())
+				.request(DrtRequest.newBuilder().id(Id.create("reqA", Request.class)).fromLinks(List.of()).toLinks(List.of()).build())
 				.maxRideDuration(300)
 				.plannedPickupTime(100.)
 				.plannedDropoffTime(300.)
 				.build();
 
 		AcceptedDrtRequest requestB = AcceptedDrtRequest.newBuilder()
-				.request(DrtRequest.newBuilder().id(Id.create("reqB", Request.class)).build())
+				.request(DrtRequest.newBuilder().id(Id.create("reqB", Request.class)).fromLinks(List.of()).toLinks(List.of()).build())
 				.maxRideDuration(100)
 				.plannedPickupTime(200.)
 				.plannedDropoffTime(350.)
@@ -303,21 +303,21 @@ public class VehicleDataEntryFactoryImplTest {
 		StopWaypoint dropoffStopC = stop(500, 1500, 510, 1510);
 
 		AcceptedDrtRequest requestA = AcceptedDrtRequest.newBuilder()
-				.request(DrtRequest.newBuilder().id(Id.create("reqA", Request.class)).build())
+				.request(DrtRequest.newBuilder().id(Id.create("reqA", Request.class)).fromLinks(List.of()).toLinks(List.of()).build())
 				.maxRideDuration(400)
 				.plannedPickupTime(100.)
 				.plannedDropoffTime(400.)
 				.build();
 
 		AcceptedDrtRequest requestB = AcceptedDrtRequest.newBuilder()
-				.request(DrtRequest.newBuilder().id(Id.create("reqB", Request.class)).build())
+				.request(DrtRequest.newBuilder().id(Id.create("reqB", Request.class)).fromLinks(List.of()).toLinks(List.of()).build())
 				.maxRideDuration(200)
 				.plannedPickupTime(200.)
 				.plannedDropoffTime(450.)
 				.build();
 
 		AcceptedDrtRequest requestC = AcceptedDrtRequest.newBuilder()
-				.request(DrtRequest.newBuilder().id(Id.create("reqC", Request.class)).build())
+				.request(DrtRequest.newBuilder().id(Id.create("reqC", Request.class)).fromLinks(List.of()).toLinks(List.of()).build())
 				.maxRideDuration(100)
 				.plannedPickupTime(300.)
 				.plannedDropoffTime(500.)
@@ -366,7 +366,11 @@ public class VehicleDataEntryFactoryImplTest {
 		StopWaypoint dropoffStop = stop(200, 1200, 210, 1210);
 
 		AcceptedDrtRequest request = AcceptedDrtRequest.newBuilder()
-				.request(DrtRequest.newBuilder().id(Id.create("req", Request.class)).build())
+				.request(DrtRequest.newBuilder()
+						.id(Id.create("req", Request.class))
+						.fromLinks(List.of())
+						.toLinks(List.of())
+						.build())
 				.maxRideDuration(300)
 				.plannedPickupTime(100.)
 				.plannedDropoffTime(200.)

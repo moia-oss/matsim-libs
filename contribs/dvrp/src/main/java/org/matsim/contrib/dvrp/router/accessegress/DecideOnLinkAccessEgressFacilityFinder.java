@@ -20,14 +20,14 @@
 
 package org.matsim.contrib.dvrp.router.accessegress;
 
-import java.util.Optional;
-import java.util.Set;
-
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.core.router.LinkWrapperFacility;
 import org.matsim.facilities.FacilitiesUtils;
 import org.matsim.facilities.Facility;
 import org.matsim.utils.objectattributes.attributable.Attributes;
+
+import java.util.List;
+import java.util.Optional;
 
 /**
  * @author Michal Maciejewski (michalm)
@@ -44,6 +44,6 @@ public class DecideOnLinkAccessEgressFacilityFinder implements AccessEgressFacil
 		LinkWrapperFacility accessFacility = new LinkWrapperFacility(
 				FacilitiesUtils.decideOnLink(fromFacility, network));
 		LinkWrapperFacility egressFacility = new LinkWrapperFacility(FacilitiesUtils.decideOnLink(toFacility, network));
-		return Optional.of(new AccessEgressFacilities(Set.of(accessFacility), Set.of(egressFacility)));
+		return Optional.of(new AccessEgressFacilities(List.of(accessFacility), List.of(egressFacility)));
 	}
 }

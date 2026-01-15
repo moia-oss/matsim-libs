@@ -25,6 +25,9 @@ import org.matsim.contrib.drt.optimizer.constraints.DrtRouteConstraints;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionDetourTimeCalculator.DetourTimeInfo;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 
+import java.util.LinkedHashSet;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.matsim.contrib.drt.optimizer.insertion.CostCalculationStrategy.MAX_TRAVEL_TIME_VIOLATION_PENALTY;
 import static org.matsim.contrib.drt.optimizer.insertion.CostCalculationStrategy.MAX_WAIT_TIME_VIOLATION_PENALTY;
@@ -69,6 +72,8 @@ public class CostCalculationStrategyTest {
 								true
 						)
 				)
+				.fromLinks(List.of())
+				.toLinks(List.of())
 				.build();
 		assertThat(new CostCalculationStrategy.DefaultCostCalculationStrategy().calcCost(drtRequest, null,
 				detourTimeInfo)).isEqualTo(expectedCost);
@@ -108,6 +113,8 @@ public class CostCalculationStrategyTest {
 								false
 						)
 				)
+				.fromLinks(List.of())
+				.toLinks(List.of())
 				.build();
 		assertThat(new CostCalculationStrategy.DefaultCostCalculationStrategy().calcCost(drtRequest, null,
 				detourTimeInfo)).isEqualTo(expectedCost);

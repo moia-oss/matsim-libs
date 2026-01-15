@@ -2,6 +2,7 @@ package org.matsim.contrib.drt.optimizer.distributed;
 
 import com.google.inject.Inject;
 import org.matsim.api.core.v01.Id;
+import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
@@ -57,16 +58,24 @@ public class DrtNodeCommunicator implements MobsimAfterSimStepListener {
 	}
 
 	private void handleMessage(RequestMessage message) {
+		List<Link> fromLinks = new ArrayList<>();
+		for (Id<Link> linkId : message.fromLinks()) {
+			Link link = network.getLinks().get(linkId);
+			fromLinks.add(link);
+		}
+		List<Link> toLinks = new ArrayList<>();
+		for (Id<Link> linkId : message.fromLinks()) {
+			Link link = network.getLinks().get(linkId);
+			toLinks.add(link);
+		}
 		requests.computeIfAbsent(message.mode(), k -> new ArrayList<>()).add(DrtRequest.newBuilder()
 			.mode(message.mode())
 			.id(message.id())
 			.submissionTime(message.submissionTime())
 			.constraints(message.constraints())
-			.fromLink(network.getLinks().get(Id.createLinkId(message.fromLink())))
-			.toLink(network.getLinks().get(Id.createLinkId(message.toLink())))
+			.fromLinks(fromLinks)
+			.toLinks(toLinks)
 			.passengerIds(message.passengerIds())
-			.accessLinkCandidates(message.accessLinkCandidates())
-			.egressLinkCandidates(message.egressLinkCandidates())
 			.build()
 		);
 	}

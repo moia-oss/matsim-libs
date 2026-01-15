@@ -78,7 +78,7 @@ public class ExtensiveInsertionProviderTest {
 	}
 
 	private void getInsertions_twoInsertionsGenerated(int nearestInsertionsAtEndLimit) {
-		var request = DrtRequest.newBuilder().build();
+		var request = DrtRequest.newBuilder().fromLinks(List.of()).toLinks(List.of()).build();
 		var vehicleEntry = mock(VehicleEntry.class);
 
 		// mock insertionGenerator

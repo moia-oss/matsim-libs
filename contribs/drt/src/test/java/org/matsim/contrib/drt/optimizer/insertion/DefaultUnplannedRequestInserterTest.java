@@ -57,6 +57,7 @@ import org.matsim.core.api.experimental.events.EventsManager;
 import org.matsim.testcases.fakes.FakeLink;
 import org.mockito.ArgumentCaptor;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 /**
@@ -66,7 +67,7 @@ public class DefaultUnplannedRequestInserterTest {
 	private static final String mode = "DRT_MODE";
 
 	private final DrtRequest request1 = request("r1", "from1", "to1");
-	private final AcceptedDrtRequest acceptedDrtRequest1 = AcceptedDrtRequest.createFromOriginalRequest(request1, 60);
+	private final AcceptedDrtRequest acceptedDrtRequest1 = AcceptedDrtRequest.createFromOriginalRequest(request1, 60, request1.getFromLink(), request1.getToLink());
 
 	private final EventsManager eventsManager = mock(EventsManager.class);
 
@@ -202,7 +203,7 @@ public class DefaultUnplannedRequestInserterTest {
 		var unplannedRequests = requests(request1);
 		double now = 15;
 
-		var vehicle1Entry = new VehicleEntry(vehicle1, null, null, null, null, 0);
+		var vehicle1Entry = new VehicleEntry(vehicle1, null, ImmutableList.of(), null, ImmutableList.of(), 0);
 		var createEntryCounter = new MutableInt();
 		VehicleEntry.EntryFactory entryFactory = (vehicle, currentTime) -> {
 			//make sure the right arguments are passed
@@ -217,7 +218,8 @@ public class DefaultUnplannedRequestInserterTest {
 
 		DrtInsertionSearch insertionSearch = (drtRequest, vEntries) -> drtRequest == request1 ?
 				Optional.of(new InsertionWithDetourData(
-						new InsertionGenerator.Insertion(vEntries.iterator().next(), null, null, loadType.fromInt(1)), null,
+						new InsertionGenerator.Insertion(request1, vEntries.iterator().next(), 0, 0),
+						null,
 						new InsertionDetourTimeCalculator.DetourTimeInfo(
 								mock(InsertionDetourTimeCalculator.PickupDetourInfo.class),
 								mock(InsertionDetourTimeCalculator.DropoffDetourInfo.class)))) :
@@ -249,7 +251,7 @@ public class DefaultUnplannedRequestInserterTest {
 		verify(eventsManager, times(1)).processEvent(captor.capture());
 		assertThat(captor.getValue()).isEqualToComparingFieldByField(
 				new PassengerRequestScheduledEvent(now, mode, request1.getId(), request1.getPassengerIds(),
-						vehicle1.getId(), pickupEndTime, dropoffBeginTime));
+						vehicle1.getId(), pickupEndTime, dropoffBeginTime, request1.getFromLink().getId(), request1.getToLink().getId()));
 
 		//vehicle entry was created twice:
 		// 1 - via constructing vehicle entries (before scheduling)
@@ -281,8 +283,6 @@ public class DefaultUnplannedRequestInserterTest {
 				.passengerIds(List.of(Id.createPersonId(id)))
 				.fromLink(fromLink)
 				.toLink(toLink)
-				.accessLinkCandidates(Set.of(fromLink))
-				.egressLinkCandidates(Set.of(toLink))
 				.mode(mode)
 				.build();
 	}

@@ -31,7 +31,9 @@ import org.matsim.contrib.dvrp.optimizer.Request;
 import org.matsim.contrib.dvrp.passenger.PassengerDroppedOffEvent;
 import org.matsim.core.events.ParallelEventsManager;
 
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * @author jbischoff
@@ -71,8 +73,10 @@ public class DrtFareHandlerTest {
 		var personId = Id.createPersonId("p1");
 		{
 			var requestId = Id.create(0, Request.class);
-			events.processEvent(new DrtRequestSubmittedEvent(0.0, mode, requestId, List.of(personId), Id.createLinkId("12"),
-					Id.createLinkId("23"), 240, 1000, 0.0, 0.0, 0.0, 0.0, null, null));
+			events.processEvent(new DrtRequestSubmittedEvent(0.0, mode, requestId, List.of(personId),
+					List.of(Id.createLinkId("12")),
+					List.of(Id.createLinkId("23")),
+							240, 1000, 0.0, 0.0, 0.0, 0.0, null, null));
 			events.processEvent(new PassengerDroppedOffEvent(300.0, mode, requestId, personId, null));
 			events.flush();
 
@@ -82,8 +86,10 @@ public class DrtFareHandlerTest {
 		{
 			// test minFarePerTrip
 			var requestId = Id.create(1, Request.class);
-			events.processEvent(new DrtRequestSubmittedEvent(0.0, mode, requestId, List.of(personId), Id.createLinkId("45"),
-					Id.createLinkId("56"), 24, 100, 0.0, 0.0, 0.0, 0.0, null, null));
+			events.processEvent(new DrtRequestSubmittedEvent(0.0, mode, requestId, List.of(personId),
+					List.of(Id.createLinkId("45")),
+					List.of(Id.createLinkId("56")),
+					24, 100, 0.0, 0.0, 0.0, 0.0, null, null));
 			events.processEvent(new PassengerDroppedOffEvent(300.0, mode, requestId, personId, null));
 			events.finishProcessing();
 

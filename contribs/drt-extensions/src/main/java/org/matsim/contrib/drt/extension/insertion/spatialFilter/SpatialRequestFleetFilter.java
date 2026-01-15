@@ -72,7 +72,7 @@ public class SpatialRequestFleetFilter implements RequestFleetFilter {
 
 	private Collection<VehicleEntry> filterEntries(Map<Id<DvrpVehicle>, VehicleEntry> vehicleEntries, DrtRequest drtRequest) {
 		Collection<VehicleEntry> result = Collections.emptyList();
-		Point point = GeometryUtils.createGeotoolsPoint(drtRequest.getFromLink().getToNode().getCoord());
+		Point point = GeometryUtils.createGeotoolsPoint(drtRequest.getFromLinks().getFirst().getToNode().getCoord());
 		STRtree tree = treeRef.get();
 
 		for (double expansion = minExpansion; expansion <= maxExpansion && result.size() < minCandidates; expansion *= expansionIncrementFactor) {

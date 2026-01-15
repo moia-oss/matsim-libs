@@ -865,11 +865,12 @@ public class RunDrtExampleIT {
 		@Override
 		public Optional<AcceptedDrtRequest> acceptDrtOffer(DrtRequest request,
 														   double departureTime, double arrivalTime,
+														   Link pickupLink, Link dropoffLink,
 														   double pickupDuration, double dropoffDuration) {
 			if (random.nextBoolean()) {
 				return Optional.empty();
 			} else {
-				return delegate.acceptDrtOffer(request, departureTime, arrivalTime, 0, dropoffDuration);
+				return delegate.acceptDrtOffer(request, departureTime, arrivalTime, pickupLink, dropoffLink, 0, dropoffDuration);
 			}
 		}
 	}

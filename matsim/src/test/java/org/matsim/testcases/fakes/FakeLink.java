@@ -171,4 +171,9 @@ public class FakeLink implements Link {
 	public Attributes getAttributes() {
 		throw new UnsupportedOperationException();
 	}
+
+	@Override
+	public int hashCode() {
+		return this.id.hashCode();
+	}
 }

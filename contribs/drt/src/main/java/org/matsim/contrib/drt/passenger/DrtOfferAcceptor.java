@@ -20,6 +20,8 @@
 
 package org.matsim.contrib.drt.passenger;
 
+import org.matsim.api.core.v01.network.Link;
+
 import java.util.Optional;
 
 /**
@@ -34,5 +36,6 @@ public interface DrtOfferAcceptor {
 	 */
 	Optional<AcceptedDrtRequest> acceptDrtOffer(DrtRequest request,
 												double departureTime, double arrivalTime,
+												Link pickupLink, Link dropoffLink,
 												double pickupDuration, double dropoffDuration);
 }

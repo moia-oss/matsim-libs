@@ -62,10 +62,8 @@ public class InsertionDetourTimeCalculatorWithVariableDurationTest {
 	private final static Link toLink = link("to");
 	private final static IntegerLoadType loadType = new IntegerLoadType("passengers");
 
-	private static final DrtRequest drtRequestInitial = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink)
-			.accessLinkCandidates(Set.of(fromLink)).egressLinkCandidates(Set.of(toLink)).build();
-	private static final DrtRequest drtRequestAdded = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink)
-			.accessLinkCandidates(Set.of(fromLink)).egressLinkCandidates(Set.of(toLink)).build();
+	private static final DrtRequest drtRequestInitial = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink).build();
+	private static final DrtRequest drtRequestAdded = DrtRequest.newBuilder().fromLink(fromLink).toLink(toLink).build();
 
 	private static final int STOP_DURATION_INITIAL = 10;
 	private static final int STOP_DURATION_ADDED = 5;
@@ -120,7 +118,7 @@ public class InsertionDetourTimeCalculatorWithVariableDurationTest {
 	void detourTimeLoss_ongoingStopAsStart_pickup_dropoff() {
 		//similar to detourTmeLoss_start_pickup_dropoff(), but the pickup is appended to the ongoing STOP task
 		DrtStopTask stopTask = new DefaultDrtStopTask(20, 20 + STOP_DURATION_INITIAL, fromLink);
-		stopTask.addDropoffRequest(AcceptedDrtRequest.createFromOriginalRequest(drtRequestInitial, 60));
+		stopTask.addDropoffRequest(AcceptedDrtRequest.createFromOriginalRequest(drtRequestInitial, 60, fromLink, toLink));
 		// sh 03/08/23: Updated this test, according to VehicleDataEntryFactoryImpl start time should be task end time
 		Waypoint.Start start = start(stopTask, 20 + STOP_DURATION_INITIAL, fromLink);
 		VehicleEntry entry = entry(start);
@@ -320,7 +318,7 @@ public class InsertionDetourTimeCalculatorWithVariableDurationTest {
 
 	private StopWaypoint stop(double beginTime, Link link) {
 		DrtStopTask stopTask = new DefaultDrtStopTask(beginTime, beginTime + STOP_DURATION_INITIAL, link);
-		stopTask.addPickupRequest(AcceptedDrtRequest.createFromOriginalRequest(drtRequestInitial, 60));
+		stopTask.addPickupRequest(AcceptedDrtRequest.createFromOriginalRequest(drtRequestInitial, 60, fromLink, toLink));
 		return new StopWaypointImpl(stopTask, loadType.getEmptyLoad(), loadType, false);
 	}
 

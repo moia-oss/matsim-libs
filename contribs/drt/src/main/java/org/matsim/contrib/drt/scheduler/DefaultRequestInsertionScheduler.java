@@ -28,7 +28,6 @@ import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.contrib.drt.optimizer.StopWaypoint;
 import org.matsim.contrib.drt.optimizer.VehicleEntry;
-import org.matsim.contrib.drt.optimizer.Waypoint;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionWithDetourData;
 import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
 import org.matsim.contrib.drt.schedule.DrtDriveTask;
@@ -205,7 +204,7 @@ public class DefaultRequestInsertionScheduler implements RequestInsertionSchedul
 			LinkTimePair diversion = ((OnlineDriveTaskTracker)currentTask.getTaskTracker()).getDiversionPoint();
 			if (diversion != null) { // divert vehicle
 				beforePickupTask = currentTask;
-				VrpPathWithTravelData vrpPath = VrpPaths.createPath(vehicleEntry.start.link, request.getFromLink(),
+				VrpPathWithTravelData vrpPath = VrpPaths.createPath(vehicleEntry.start.link, request.getPickupLink(),
 					vehicleEntry.start.time, detourData.detourToPickup, travelTime);
 
 				if (vrpPath.getArrivalTime() < request.getEarliestStartTime() && scheduleWaitBeforeDriveToNewStop) {
@@ -218,8 +217,8 @@ public class DefaultRequestInsertionScheduler implements RequestInsertionSchedul
 					beforePickupTask = insertWait(vehicleEntry.vehicle, beforePickupTask, request.getEarliestStartTime());
 				}
 			} else { // too late for diversion
-				if (request.getFromLink() != vehicleEntry.start.link) { // add a new drive task
-					VrpPathWithTravelData vrpPath = VrpPaths.createPath(vehicleEntry.start.link, request.getFromLink(),
+				if (request.getPickupLink() != vehicleEntry.start.link) { // add a new drive task
+					VrpPathWithTravelData vrpPath = VrpPaths.createPath(vehicleEntry.start.link, request.getPickupLink(),
 						vehicleEntry.start.time, detourData.detourToPickup, travelTime);
 					// prebooking: may want to wait before or after driving
 					beforePickupTask = insertDriveWithWait(vehicleEntry.vehicle, currentTask, vrpPath, request.getEarliestStartTime(), scheduleWaitBeforeDriveToNewStop);
@@ -250,7 +249,7 @@ public class DefaultRequestInsertionScheduler implements RequestInsertionSchedul
 				stopTask = stops.get(pickupIdx - 1).getTask(); // future stop task
 			}
 
-boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChangeTask) && request.getFromLink() == stopTask.getLink()
+boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChangeTask) && request.getPickupLink() == stopTask.getLink()
 					&& stopTask.calcLatestDepartureTime() >= request.getEarliestStartTime();
 
 			if (canMergePickup) { // no detour; no new stop task
@@ -269,9 +268,9 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 						removeBetween(schedule, stopTask, nextStopTask);
 					}
 
-					Link toLink = request.getToLink(); // pickup->dropoff
+					Link toLink = request.getDropoffLink(); // pickup->dropoff
 
-					VrpPathWithTravelData vrpPath = VrpPaths.createPath(request.getFromLink(), toLink,
+					VrpPathWithTravelData vrpPath = VrpPaths.createPath(request.getPickupLink(), toLink,
 						stopTask.getEndTime(), detourData.detourFromPickup, travelTime);
 					Task driveFromPickupTask = taskFactory.createDriveTask(vehicleEntry.vehicle, vrpPath,
 						DrtDriveTask.TYPE); // immediate drive to dropoff
@@ -291,7 +290,7 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 					removeBetween(schedule, stayOrStopTask, nextStopTask);
 				}
 
-				if (request.getFromLink() == stayOrStopTask.getLink()) {
+				if (request.getPickupLink() == stayOrStopTask.getLink()) {
 					// the bus stays where it is
 					beforePickupTask = stayOrStopTask;
 
@@ -299,7 +298,7 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 					beforePickupTask = insertWait(vehicleEntry.vehicle, beforePickupTask, request.getEarliestStartTime());
 				} else {// add drive task to pickup location
 					// insert drive i->pickup
-					VrpPathWithTravelData vrpPath = VrpPaths.createPath(stayOrStopTask.getLink(), request.getFromLink(),
+					VrpPathWithTravelData vrpPath = VrpPaths.createPath(stayOrStopTask.getLink(), request.getPickupLink(),
 						stayOrStopTask.getEndTime(), detourData.detourToPickup, travelTime);
 					// we may want to wait before or after driving
 					beforePickupTask = insertDriveWithWait(vehicleEntry.vehicle, stayOrStopTask, vrpPath, request.getEarliestStartTime(), scheduleWaitBeforeDriveToNewStop);
@@ -311,12 +310,12 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 		int taskIdx = beforePickupTask.getTaskIdx() + 1;
 		double stopEndTime = stopTimeCalculator.initEndTimeForPickup(vehicleEntry.vehicle, beforePickupTask.getEndTime(), request.getRequest()).endTime();
 		DrtStopTask pickupStopTask = taskFactory.createStopTask(vehicleEntry.vehicle, beforePickupTask.getEndTime(),
-			stopEndTime, request.getFromLink());
+			stopEndTime, request.getPickupLink());
 		schedule.addTask(taskIdx, pickupStopTask);
 		pickupStopTask.addPickupRequest(request);
 
 		// add drive from pickup
-		Link toLink = pickupIdx == dropoffIdx ? request.getToLink() // pickup->dropoff
+		Link toLink = pickupIdx == dropoffIdx ? request.getDropoffLink() // pickup->dropoff
 			: stops.get(pickupIdx).getTask().getLink(); // pickup->i+1
 
 		double nextBeginTime = pickupIdx == dropoffIdx ? //
@@ -325,7 +324,7 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 				capacityChangeTask.getBeginTime() :
 				stops.get(pickupIdx).getEarliestArrivalTime();
 
-		if (request.getFromLink() == toLink) {
+		if (request.getPickupLink() == toLink) {
 			// prebooking case when we are already at the stop location, but next stop task happens in the future
 			Task afterPickupTask = insertWait(vehicleEntry.vehicle, pickupStopTask, nextBeginTime);
 
@@ -337,7 +336,7 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 					afterPickupTask.getEndTime());
 			}
 		} else {
-			VrpPathWithTravelData vrpPath = VrpPaths.createPath(request.getFromLink(), toLink, pickupStopTask.getEndTime(),
+			VrpPathWithTravelData vrpPath = VrpPaths.createPath(request.getPickupLink(), toLink, pickupStopTask.getEndTime(),
 				detourData.detourFromPickup, travelTime);
 
 			boolean scheduleWaitBeforeDrive = pickupIdx == dropoffIdx ? scheduleWaitBeforeDriveToNewStop // pickup->dropoff
@@ -375,7 +374,7 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 			driveToDropoffTask = schedule.getTasks().get(pickupTaskIdx + 1);
 		} else {
 			DrtStopTask stopTask = stops.get(dropoffIdx - 1).getTask();
-			if (request.getToLink() == stopTask.getLink()) { // no detour; no new stop task
+			if (request.getDropoffLink() == stopTask.getLink()) { // no detour; no new stop task
 				// add dropoff request to stop task, and extend the stop task (when incremental stop task duration is used)
 				stopTask.addDropoffRequest(request);
 
@@ -395,7 +394,7 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 				}
 
 				// insert drive i->dropoff
-				VrpPathWithTravelData vrpPath = VrpPaths.createPath(stopTask.getLink(), request.getToLink(),
+				VrpPathWithTravelData vrpPath = VrpPaths.createPath(stopTask.getLink(), request.getDropoffLink(),
 					stopTask.getEndTime(), detourData.detourToDropoff, travelTime);
 				// direct drive to dropoff (no waiting)
 				driveToDropoffTask = taskFactory.createDriveTask(vehicleEntry.vehicle, vrpPath, DrtDriveTask.TYPE);
@@ -409,7 +408,7 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 		Dropoff dropoffTime = stopTimeCalculator.initEndTimeForDropoff(vehicleEntry.vehicle, startTime, request.getRequest());
 		double stopEndTime = dropoffTime.endTime();
 		DrtStopTask dropoffStopTask = taskFactory.createStopTask(vehicleEntry.vehicle, startTime,
-			stopEndTime, request.getToLink());
+			stopEndTime, request.getDropoffLink());
 		schedule.addTask(taskIdx, dropoffStopTask);
 		dropoffStopTask.addDropoffRequest(request);
 
@@ -430,10 +429,10 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 		} else {
 			Link toLink = stops.get(dropoffIdx).getTask().getLink(); // dropoff->j+1
 
-			VrpPathWithTravelData vrpPath = VrpPaths.createPath(request.getToLink(), toLink, dropoffStopTask.getEndTime(),
+			VrpPathWithTravelData vrpPath = VrpPaths.createPath(request.getDropoffLink(), toLink, dropoffStopTask.getEndTime(),
 				detourData.detourFromDropoff, travelTime);
 
-			if (toLink == request.getToLink()) {
+			if (toLink == request.getDropoffLink()) {
 				// prebooking case: we stay, but may add some wait time until the next stop
 				Task afterDropoffTask = insertWait(vehicleEntry.vehicle, dropoffStopTask,
 					stops.get(dropoffIdx).getTask().getBeginTime());
