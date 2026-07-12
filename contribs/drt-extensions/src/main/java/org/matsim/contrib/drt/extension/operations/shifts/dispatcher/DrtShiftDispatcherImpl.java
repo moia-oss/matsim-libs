@@ -31,7 +31,7 @@ import org.matsim.contrib.drt.extension.operations.operationFacilities.*;
 import org.matsim.contrib.drt.extension.operations.shifts.config.ShiftsParams;
 import org.matsim.contrib.drt.extension.operations.shifts.events.*;
 import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle;
-import org.matsim.contrib.drt.extension.operations.shifts.schedule.OperationalStop;
+import org.matsim.contrib.drt.extension.operations.shifts.schedule.FacilityStop;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftBreakTask;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftChangeOverTask;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftSchedules;
@@ -142,12 +142,12 @@ public class DrtShiftDispatcherImpl implements DrtShiftDispatcher {
     }
 
     @Override
-    public void startOperationalTask(ShiftDvrpVehicle vehicle, OperationalStop operationalStop) {
-        OperationFacility facility = Objects.requireNonNull(operationFacilities.getFacilities().get(operationalStop.getFacilityId()));
+    public void startOperationalTask(ShiftDvrpVehicle vehicle, FacilityStop facilityStop) {
+        OperationFacility facility = Objects.requireNonNull(operationFacilities.getFacilities().get(facilityStop.getFacilityId()));
 
-        Verify.verify(operationalStop.getReservationId().isPresent(), "Vehicle should have a reservation at this point.");
+        Verify.verify(facilityStop.getReservationId().isPresent(), "Vehicle should have a reservation at this point.");
         Optional<ReservationManager.ReservationInfo<OperationFacility, DvrpVehicle>> reservation = facilityReservationManager
-                .findReservation(facility.getId(), operationalStop.getReservationId().get());
+                .findReservation(facility.getId(), facilityStop.getReservationId().get());
         Verify.verify(reservation.isPresent(), "Reservation is not know at the resource.");
 
         boolean registered = facility.register(vehicle.getId());
@@ -158,9 +158,9 @@ public class DrtShiftDispatcherImpl implements DrtShiftDispatcher {
                     vehicle.getId().toString(), facility.getId(), reservation.get().reservationId()));
         } else {
 
-            if (operationalStop instanceof ShiftChangeOverTask changeover) {
+            if (facilityStop instanceof ShiftChangeOverTask changeover) {
                 endShift(vehicle, changeover.getLink().getId(), changeover.getFacilityId());
-            } else if (operationalStop instanceof ShiftBreakTask shiftBreak) {
+            } else if (facilityStop instanceof ShiftBreakTask shiftBreak) {
                 startBreak(vehicle, shiftBreak.getLink().getId());
             }
 
@@ -170,11 +170,11 @@ public class DrtShiftDispatcherImpl implements DrtShiftDispatcher {
     }
 
     @Override
-    public void endOperationalTask(ShiftDvrpVehicle vehicle, OperationalStop operationalStop) {
-        if (operationalStop instanceof ShiftBreakTask shiftBreakTask) {
+    public void endOperationalTask(ShiftDvrpVehicle vehicle, FacilityStop facilityStop) {
+        if (facilityStop instanceof ShiftBreakTask shiftBreakTask) {
             endBreak(vehicle, shiftBreakTask);
         }
-        OperationFacility facility = Objects.requireNonNull(operationFacilities.getFacilities().get(operationalStop.getFacilityId()));
+        OperationFacility facility = Objects.requireNonNull(operationFacilities.getFacilities().get(facilityStop.getFacilityId()));
         boolean checkOut = facility.deregisterVehicle(vehicle.getId());
         if (checkOut) {
             eventsManager.processEvent(new OperationFacilityCheckOutEvent(timer.getTimeOfDay(), mode, vehicle.getId(), facility.getId()));
