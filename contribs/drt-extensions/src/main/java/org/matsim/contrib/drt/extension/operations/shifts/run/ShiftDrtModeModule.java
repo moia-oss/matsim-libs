@@ -8,6 +8,8 @@ import com.google.inject.TypeLiteral;
 import org.matsim.contrib.common.timeprofile.ProfileWriter;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler;
+import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilitiesSpecification;
 import org.matsim.contrib.drt.extension.operations.shifts.analysis.*;
 import org.matsim.contrib.drt.extension.operations.shifts.config.ShiftsParams;
@@ -38,6 +40,7 @@ import org.matsim.contrib.dvrp.fleet.FleetSpecification;
 import org.matsim.contrib.dvrp.load.DvrpLoadType;
 import org.matsim.contrib.dvrp.run.AbstractDvrpModeModule;
 import org.matsim.contrib.dvrp.schedule.Task;
+import org.matsim.core.api.experimental.events.EventsManager;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.groups.QSimConfigGroup;
 import org.matsim.core.controler.MatsimServices;
@@ -94,7 +97,13 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 			new DrtShiftsReader(drtShiftsSpecification).parse(shiftsParams.getShiftInputUrl(getConfig().getContext()));
 		}
 
-		bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> new DefaultShiftScheduler(drtShiftsSpecification)));
+		if (drtOperationsParams.getRemoteGuidanceParams().isPresent()) {
+			RemoteGuidanceParams remoteGuidanceParams = drtOperationsParams.getRemoteGuidanceParams().get();
+			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> RemoteGuidanceScheduler.create(
+					drtShiftsSpecification, remoteGuidanceParams, getter.get(EventsManager.class), getMode())));
+		} else {
+			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> new DefaultShiftScheduler(drtShiftsSpecification)));
+		}
 		bindModal(DrtShiftsSpecification.class).toProvider(modalKey(ShiftScheduler.class));
 
 		bindModal(ShiftDurationXY.class).toProvider(modalProvider(

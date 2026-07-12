@@ -1,0 +1,8 @@
+<shifts>
+    <!-- Remote guidance operator shifts. Each supervises up to 'defaultOperatorCapacity' vehicles at once.
+         Two operators with capacity 5 (configured in the test) allow at most 10 of the 20 vehicles to operate
+         simultaneously. The second operator starts later and ends earlier to exercise activation and the
+         hub-based handover when operator_1 ends while operator_0 still has capacity. -->
+    <shift id="operator_0" start="14400" end="50400" type="remoteGuidance"/>
+    <shift id="operator_1" start="18000" end="45000" type="remoteGuidance"/>
+</shifts>
