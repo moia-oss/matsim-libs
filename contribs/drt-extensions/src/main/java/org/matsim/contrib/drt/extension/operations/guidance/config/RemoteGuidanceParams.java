@@ -9,8 +9,11 @@
 package org.matsim.contrib.drt.extension.operations.guidance.config;
 
 import com.google.common.base.Verify;
+import jakarta.annotation.Nullable;
 import org.matsim.contrib.common.util.ReflectiveConfigGroupWithConfigurableParameterSets;
 import org.matsim.core.config.Config;
+
+import java.util.Optional;
 
 /**
  * Configuration for remote guidance operator shifts. A remote guidance operator supervises up to
@@ -44,8 +47,19 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 			+ "operator. Prevents activating vehicles shortly before an operator shift ends. Defaults to 1800.")
 	private double minRemainingShiftTimeForActivation = 1800;
 
+	// optional: stochastic incident handling. If absent, no incidents are generated.
+	@Nullable
+	private IncidentParams incidentParams;
+
 	public RemoteGuidanceParams() {
 		super(SET_NAME);
+		// incidents (optional)
+		addDefinition(IncidentParams.SET_NAME, IncidentParams::new, () -> incidentParams,
+				params -> incidentParams = (IncidentParams) params);
+	}
+
+	public Optional<IncidentParams> getIncidentParams() {
+		return Optional.ofNullable(incidentParams);
 	}
 
 	public String getOperatorShiftType() {
