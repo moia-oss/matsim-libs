@@ -156,6 +156,24 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
                 Optional<Id<ReservationManager.Reservation>> reservationId = waitForShiftTask.getReservationId();
                 reservationId.ifPresent(id -> facilityReservationManager.updateReservation(waitForShiftTask.getFacilityId(), id, now, shift.getStartTime()));
 
+                // A shift with a discretionary end (e.g. a remote-guidance virtual shift running to the simulation
+                // horizon, D21) does NOT materialise a changeover/wait tail: the horizon-anchored changeover and its
+                // landing reservation would guard nothing, force a spurious end-of-day deadhead to a hub, and add the
+                // rigidity a recall then has to fight. Instead the vehicle simply stays in service until its service
+                // end; the actual end is materialised on demand by the dispatcher's early-end mechanism
+                // (endShiftActively / findShiftEndAnchor, which already handles the no-existing-changeover case).
+                if (!shift.hasCommittedEnd()) {
+                    // a discretionary-end shift carries no break (a break is a fixed roster commitment); guard the
+                    // assumption rather than silently dropping one.
+                    Gbl.assertIf(shift.getBreak().isEmpty());
+                    // the vehicle stays in service until its service end; guard against a degenerate (zero/negative)
+                    // stay from a shift started at or past the service end, mirroring the committed path's stay guard.
+                    Gbl.assertIf(now < vehicle.getServiceEndTime());
+                    schedule.addTask(taskFactory.createStayTask(vehicle, now, vehicle.getServiceEndTime(),
+                            waitForShiftTask.getLink()));
+                    return;
+                }
+
                 double initialStayEndTime = shift.getEndTime();
                 Optional<DrtShiftBreak> shiftBreak = shift.getBreak();
                 if (shiftBreak.isPresent()) {

@@ -82,9 +82,13 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	private final Set<Id<DrtShift>> registeredVirtualSpecs = new HashSet<>();
 	private long virtualShiftCounter;
 	// the "simulation horizon" end assigned to every virtual shift (D16). Lazily derived from the fleet on the first
-	// schedule() call as (minimum service end time − changeover duration), so that startShift's eagerly-materialised
-	// end-of-shift tail (a changeover of length changeoverDuration ending at end+changeoverDuration, plus its landing
-	// reservation) fits entirely within the vehicle's service end for whichever vehicle the dispatcher picks.
+	// schedule() call as (minimum service end time − changeover duration). A virtual shift has a discretionary end
+	// (D21): startShift materialises NO changeover tail for it, so this end time is never physically reached as a
+	// changeover — it only serves as the far-future bound that the dispatcher's lifecycle keys on and against which
+	// the recall look-ahead is evaluated. The − changeoverDuration is no longer load-bearing (post-D21 nothing is
+	// materialised at this time); it is kept only as a small margin below service end so that the shift end sorts
+	// strictly before the vehicle's service end in the dispatcher's end-time-keyed lifecycle. A recall materialises
+	// its own changeover with a fresh [arrival, serviceEnd] reservation and does not depend on this offset.
 	private double virtualShiftEndTime = Double.NaN;
 
 	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceOperators operators,
@@ -206,8 +210,10 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		Id<DrtShift> id = Id.create("rg_" + (virtualShiftCounter++) + "_" + (long) now, DrtShift.class);
 		// no fixed facility: the vehicle is activated from / returns to any hub (hub-based handover);
 		// no designated vehicle: the dispatcher matches an idle vehicle;
-		// end = simulation horizon (D16): the shift runs until a deactivation trigger recalls it early.
-		return new DrtShiftImpl(id, now, virtualShiftEndTime, null, null, null, VIRTUAL_SHIFT_TYPE);
+		// end = simulation horizon (D16): the shift runs until a deactivation trigger recalls it early;
+		// committedEnd = false (D21): the horizon end is discretionary, so startShift materialises NO changeover/wait
+		// tail — the vehicle stays in service on a plain stay until a recall lazily materialises the end.
+		return new DrtShiftImpl(id, now, virtualShiftEndTime, null, null, null, VIRTUAL_SHIFT_TYPE, false);
 	}
 
 	/**

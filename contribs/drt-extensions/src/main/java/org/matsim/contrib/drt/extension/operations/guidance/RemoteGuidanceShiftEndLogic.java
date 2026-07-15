@@ -47,14 +47,13 @@ import java.util.Set;
  * per step, but the victim set is a function of the whole active-virtual fleet, so it is computed once per {@code now}
  * from the fleet and then answered per entry.
  * <p>
- * <b>Interaction with eager shift-end materialisation (pre-D21):</b> {@code startShift} currently materialises a
- * changeover at {@code shift.getEndTime()} (= the sim horizon) for every virtual shift. Two consequences until the
- * lazy-materialisation refactor (Task #8) lands: (a) "already leaving" cannot be detected by the mere presence of a
- * changeover — it is detected by the changeover's <em>begin time</em> being pulled forward before the horizon (a
- * materialised recall anchors it at {@code now}); (b) the {@code idleTimeout} trigger is effectively dormant, because
- * an eagerly-built vehicle's last task is always the WaitForShift tail, never a last-task {@link DrtStayTask}, so
- * {@link #isIdleInService} never holds. The idle-timeout code is correct and forward-looking; it activates once D21
- * removes the eager tail. {@code capacityExceeded} works today.
+ * <b>Since D21 (lazy shift-end materialisation):</b> a virtual shift carries no eagerly-built changeover/wait tail —
+ * an active virtual vehicle sits on a last-task {@link DrtStayTask} until recalled. Consequences: (a) the
+ * {@code idleTimeout} trigger is now live (a vehicle with no committed work satisfies {@link #isIdleInService}
+ * immediately, and is recalled once it has been idle longer than the timeout); (b) a virtual vehicle has a changeover
+ * in its schedule <em>only</em> after a recall has materialised one (anchored ahead of the horizon end), so
+ * "already leaving" is simply "has a next changeover" ({@link #isAlreadyLeaving}). {@code capacityExceeded} is
+ * unchanged.
  *
  * @author nkuehnel / MOIA
  */
@@ -101,13 +100,11 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 				DrtShift current = shiftVehicle.getShifts().peek();
 				if (current != null && isVirtualShift(current)
 						&& vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED
-						// exclude vehicles already recalled (routing home): their changeover has been pulled forward
-						// ahead of the shift's (horizon) end. The eager tail every virtual shift starts with sits AT
-						// the horizon, so it does NOT count as "leaving"; only a materialised early recall does. A
-						// recall that was deferred (attempt-and-defer) has not moved the changeover yet, so it stays
-						// counted and is retried next step. (Post-D21 the eager tail is gone and any changeover means
-						// leaving — this predicate then simplifies to "has a changeover".)
-						&& !isAlreadyLeaving(shiftVehicle, current)) {
+						// exclude vehicles already recalled (routing home). Since D21 a virtual shift has no eager tail,
+						// so a changeover in the schedule can only have been materialised by a recall → its mere
+						// presence means "leaving". A recall that was deferred (attempt-and-defer) has not materialised
+						// a changeover yet, so it stays counted and is retried next step.
+						&& !isAlreadyLeaving(shiftVehicle)) {
 					active.add(shiftVehicle);
 				}
 			}
@@ -148,14 +145,11 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 	}
 
 	/**
-	 * @return {@code true} if this vehicle has already been recalled, i.e. its changeover has been pulled forward
-	 * ahead of the shift's (horizon) end time. Distinguishes a materialised early recall from the eager end-of-shift
-	 * tail that sits exactly at the shift end.
+	 * @return {@code true} if this vehicle has already been recalled, i.e. a recall has materialised a changeover in
+	 * its schedule (since D21 a virtual shift has no eager tail, so any next changeover is a recall's).
 	 */
-	private boolean isAlreadyLeaving(ShiftDvrpVehicle vehicle, DrtShift shift) {
-		return ShiftSchedules.getNextShiftChangeover(vehicle.getSchedule())
-				.map(changeover -> changeover.getBeginTime() < shift.getEndTime())
-				.orElse(false);
+	private boolean isAlreadyLeaving(ShiftDvrpVehicle vehicle) {
+		return ShiftSchedules.getNextShiftChangeover(vehicle.getSchedule()).isPresent();
 	}
 
 	private boolean isIdleInService(ShiftDvrpVehicle vehicle) {
