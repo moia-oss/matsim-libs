@@ -54,6 +54,12 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 	private double idleTimeout = 900;
 
 	@Parameter
+	@Comment("Hard floor on the number of active (supervised) vehicles: at least this many are kept active while "
+			+ "activation capacity allows, regardless of demand. Maps to the regulatory minimum-staffing floor. "
+			+ "Defaults to 0 (no floor).")
+	private int minActiveFleet = 0;
+
+	@Parameter
 	@Comment("Proactive recall lead time in [seconds]: vehicles are recalled to a hub already when supervision capacity "
 			+ "will drop within this look-ahead window (e.g. an operator shift ending soon), so they arrive at the hub "
 			+ "in time instead of being caught on the road when capacity actually falls. Defaults to 900.")
@@ -114,10 +120,19 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		this.recallLeadTime = recallLeadTime;
 	}
 
+	public int getMinActiveFleet() {
+		return minActiveFleet;
+	}
+
+	public void setMinActiveFleet(int minActiveFleet) {
+		this.minActiveFleet = minActiveFleet;
+	}
+
 	@Override
 	protected void checkConsistency(Config config) {
 		super.checkConsistency(config);
 		Verify.verify(defaultOperatorCapacity > 0, "defaultOperatorCapacity must be a positive integer.");
 		Verify.verify(minRemainingShiftTimeForActivation >= 0, "minRemainingShiftTimeForActivation must not be negative.");
+		Verify.verify(minActiveFleet >= 0, "minActiveFleet must not be negative.");
 	}
 }

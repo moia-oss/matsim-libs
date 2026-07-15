@@ -12,6 +12,10 @@ import com.google.common.collect.ImmutableMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Id;
+import org.matsim.contrib.drt.extension.operations.guidance.activation.ActivationReconciler;
+import org.matsim.contrib.drt.extension.operations.guidance.activation.ActivationTrigger;
+import org.matsim.contrib.drt.extension.operations.guidance.activation.GuidanceState;
+import org.matsim.contrib.drt.extension.operations.guidance.activation.IdleBufferActivation;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleActivatedForRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent;
@@ -24,9 +28,11 @@ import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftImpl;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftSpecificationImpl;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftsSpecification;
+import org.matsim.contrib.drt.schedule.DrtStayTask;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.fleet.Fleet;
 import org.matsim.contrib.dvrp.schedule.Schedule;
+import org.matsim.contrib.dvrp.schedule.Schedules;
 import org.matsim.contrib.dvrp.schedule.Task;
 import org.matsim.core.api.experimental.events.EventsManager;
 
@@ -48,6 +54,14 @@ import java.util.Set;
  * <b>no scheduled end of its own</b> — it is created with {@code end = the simulation horizon} (D16) and is ended
  * early on demand by {@link RemoteGuidanceShiftEndLogic} (capacity exceeded / idle timeout), which drives the
  * dispatcher's early-end mechanism.
+ * <p>
+ * <b>How many to emit is decided by pluggable activation triggers (RF1 / D17), not greedily.</b> Each step the
+ * scheduler builds a narrow {@link GuidanceState} snapshot and hands it to an {@link ActivationReconciler}, which
+ * OR-combines the configured {@link ActivationTrigger}s (max of their desired active counts), clamps to the hard floor
+ * {@code nMin} and the activation ceiling {@code Σκ}, and returns how many new virtual shifts to emit. The default
+ * trigger is a single {@link IdleBufferActivation} (keep exactly one ready buffer vehicle) over the reconciler's
+ * {@code nMin} floor, which damps the low-demand activate&harr;idle-timeout&harr;recall sawtooth the old greedy emit
+ * produced.
  * <p>
  * Non-operator shifts (regular driver shifts) are passed through unchanged, so a fleet may combine driver shifts and
  * remote guidance.
@@ -74,6 +88,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	private final EventsManager eventsManager;
 	private final String mode;
 	private final double changeoverDuration;
+	private final ActivationReconciler activationReconciler;
 
 	// runtime state, (re)initialized on each initialSchedule() (i.e. per iteration)
 	private Map<Id<DrtShift>, Id<DvrpVehicle>> liveVirtualShifts;
@@ -93,13 +108,14 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceOperators operators,
 								   RemoteGuidanceParams params, EventsManager eventsManager, String mode,
-								   double changeoverDuration) {
+								   double changeoverDuration, ActivationReconciler activationReconciler) {
 		this.delegate = delegate;
 		this.operators = operators;
 		this.params = params;
 		this.eventsManager = eventsManager;
 		this.mode = mode;
 		this.changeoverDuration = changeoverDuration;
+		this.activationReconciler = activationReconciler;
 	}
 
 	@Override
@@ -135,11 +151,15 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 					.min()
 					.orElse(now);
 			virtualShiftEndTime = minServiceEnd - changeoverDuration;
+			warnIfMinActiveFleetUnreachable(fleet);
 		}
 
 		List<DrtShift> emitted = new ArrayList<>(delegate.schedule(now, fleet));
 
-		reconcileSupervisions(now, fleet);
+		// single fleet scan: reconciles which virtual shifts are live (firing activation/deactivation events) AND
+		// collects the two D19 idle counts the activation triggers need — folded together to avoid a second pass over
+		// the whole fleet each step (matters at large fleet sizes).
+		IdleCounts idleCounts = reconcileSupervisions(now, fleet);
 
 		// D22: release operators that have passed their planned end, but only as far as the (now reconciled) active
 		// supervised fleet allows without breaking coverage — a retained operator keeps supervising its vehicles and
@@ -147,36 +167,83 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// operators no longer count toward the activation ceiling below.
 		operators.releaseElapsedOperators(now, liveVirtualShifts.size());
 
-		// activation (D17 baseline trigger): bring idle-at-hub vehicles in while below the activation ceiling. This uses
-		// the PLANNED-window capacity (not coverage): a winding-down operator retained past its planned end must not pull
-		// new vehicles in.
-		int capacity = operators.activationCapacityAt(now);
-		int freeCapacity = capacity - liveVirtualShifts.size();
-		if (freeCapacity <= 0) {
-			return emitted;
-		}
-		int idleAtHub = countIdleAtHubVehicles(fleet);
-		int toEmit = Math.min(freeCapacity, idleAtHub);
+		// activation (RF1 / D17): pluggable triggers decide how many vehicles should be active; the reconciler combines
+		// them and clamps to the hard floor + the activation ceiling Σκ. The ceiling uses the PLANNED-window capacity
+		// (not coverage): a winding-down operator retained past its planned end must not pull new vehicles in.
+		// recentRejectionRate is not wired yet (seam for a future demand-driven trigger) → 0.0.
+		GuidanceState state = new GuidanceState(liveVirtualShifts.size(), operators.activationCapacityAt(now),
+				idleCounts.idleAtHub(), idleCounts.idleInService(), 0.0);
+		int toEmit = activationReconciler.toEmit(state, now);
 		for (int i = 0; i < toEmit; i++) {
 			emitted.add(createVirtualShift(now));
 		}
 		return emitted;
 	}
 
+	/** The two D19 idle counts collected during the fleet scan: idle-at-hub (activation source) + idle-in-service (buffer). */
+	private record IdleCounts(int idleAtHub, int idleInService) {}
+
 	/**
-	 * Recomputes, from the current fleet state, which virtual shifts are live (present in a vehicle's shift queue).
-	 * Fires activation/deactivation events on transitions. Emission itself no longer needs an id&harr;operator map:
-	 * a virtual shift is recognised purely by its shift type.
+	 * Warns once (at the first schedule call) if the configured {@code minActiveFleet} floor can never be met, because
+	 * it exceeds either the maximum activation capacity {@code Σκ} the operator schedule ever reaches, or the number of
+	 * shift-capable vehicles in the fleet. Both are hard upper bounds on the active count; the reconciler clamps the
+	 * floor to them gracefully, so this is a diagnostic only (no exception): a silently-truncated floor would otherwise
+	 * read as "the floor is in effect" when it is not.
 	 */
-	private void reconcileSupervisions(double now, Fleet fleet) {
+	private void warnIfMinActiveFleetUnreachable(Fleet fleet) {
+		int minActiveFleet = params.getMinActiveFleet();
+		if (minActiveFleet <= 0) {
+			return;
+		}
+		int maxCapacity = operators.maxActivationCapacity();
+		if (minActiveFleet > maxCapacity) {
+			logger.warn("minActiveFleet ({}) exceeds the maximum operator activation capacity Σκ ({}); the floor is "
+					+ "capped by capacity and can never be fully met.", minActiveFleet, maxCapacity);
+		}
+		long shiftVehicles = fleet.getVehicles().values().stream()
+				.filter(vehicle -> vehicle instanceof ShiftDvrpVehicle)
+				.count();
+		if (minActiveFleet > shiftVehicles) {
+			logger.warn("minActiveFleet ({}) exceeds the number of shift-capable vehicles in the fleet ({}); the floor "
+					+ "is capped by the fleet size and can never be fully met.", minActiveFleet, shiftVehicles);
+		}
+	}
+
+	/**
+	 * Single pass over the fleet that (1) recomputes which virtual shifts are live (present in a vehicle's shift queue)
+	 * and fires activation/deactivation events on transitions, and (2) tallies the two D19 idle counts for the
+	 * activation triggers. Emission no longer needs an id&harr;operator map: a virtual shift is recognised purely by
+	 * its shift type.
+	 */
+	private IdleCounts reconcileSupervisions(double now, Fleet fleet) {
 		Map<Id<DrtShift>, Id<DvrpVehicle>> currentlyLive = new HashMap<>();
+		int idleAtHub = 0;
+		int idleInService = 0;
 		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
-			if (vehicle instanceof ShiftDvrpVehicle shiftVehicle) {
-				for (DrtShift shift : shiftVehicle.getShifts()) {
-					if (isVirtualShift(shift)) {
-						currentlyLive.put(shift.getId(), vehicle.getId());
-					}
+			if (!(vehicle instanceof ShiftDvrpVehicle shiftVehicle)) {
+				continue;
+			}
+			for (DrtShift shift : shiftVehicle.getShifts()) {
+				if (isVirtualShift(shift)) {
+					currentlyLive.put(shift.getId(), vehicle.getId());
 				}
+			}
+			// idle counts (D19), only meaningful for a started schedule
+			Schedule schedule = vehicle.getSchedule();
+			if (schedule.getStatus() != Schedule.ScheduleStatus.STARTED) {
+				continue;
+			}
+			Task currentTask = schedule.getCurrentTask();
+			if (shiftVehicle.getShifts().isEmpty()) {
+				// out of service, waiting at a hub → activation source
+				if (currentTask instanceof WaitForShiftTask) {
+					idleAtHub++;
+				}
+			} else if (isVirtualShift(shiftVehicle.getShifts().peek())
+					&& currentTask instanceof DrtStayTask
+					&& currentTask.equals(Schedules.getLastTask(schedule))) {
+				// active virtual vehicle truly idle in service (D19: stay task that is the last task) → ready buffer
+				idleInService++;
 			}
 		}
 
@@ -204,6 +271,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		}
 
 		liveVirtualShifts = currentlyLive;
+		return new IdleCounts(idleAtHub, idleInService);
 	}
 
 	private DrtShift createVirtualShift(double now) {
@@ -232,22 +300,6 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		}
 	}
 
-	private int countIdleAtHubVehicles(Fleet fleet) {
-		int count = 0;
-		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
-			if (vehicle instanceof ShiftDvrpVehicle shiftVehicle && shiftVehicle.getShifts().isEmpty()) {
-				Schedule schedule = vehicle.getSchedule();
-				if (schedule.getStatus() == Schedule.ScheduleStatus.STARTED) {
-					Task currentTask = schedule.getCurrentTask();
-					if (currentTask instanceof WaitForShiftTask) {
-						count++;
-					}
-				}
-			}
-		}
-		return count;
-	}
-
 	private boolean isOperatorShift(DrtShift shift) {
 		return shift.getShiftType().map(params.getOperatorShiftType()::equals).orElse(false);
 	}
@@ -262,12 +314,18 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	}
 
 	/**
-	 * Convenience factory wrapping a {@link DefaultShiftScheduler} over the given specification.
+	 * Convenience factory wrapping a {@link DefaultShiftScheduler} over the given specification, with the default
+	 * activation policy (RF1 / D17): an {@link IdleBufferActivation} responsiveness buffer over the reconciler's
+	 * {@code minActiveFleet} floor. The floor lives solely on the reconciler (a single source), so it is enforced even
+	 * with an empty trigger list. The greedy baseline ({@code GreedyIdleActivation}) is deliberately NOT in the default
+	 * set — it reproduces the low-demand sawtooth.
 	 */
 	public static RemoteGuidanceScheduler create(DrtShiftsSpecification specification, RemoteGuidanceOperators operators,
 												 RemoteGuidanceParams params, EventsManager eventsManager, String mode,
 												 double changeoverDuration) {
+		List<ActivationTrigger> triggers = List.of(new IdleBufferActivation());
+		ActivationReconciler reconciler = new ActivationReconciler(triggers, params.getMinActiveFleet());
 		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, params, eventsManager,
-				mode, changeoverDuration);
+				mode, changeoverDuration, reconciler);
 	}
 }

@@ -189,6 +189,20 @@ public final class RemoteGuidanceOperators {
 	}
 
 	/**
+	 * @return the maximum activation capacity {@code Σκ} reached at any point over the operator schedule — the largest
+	 * number of vehicles that can ever be supervised simultaneously. Since activation capacity is a step function that
+	 * only changes at operator start / planned-end times, the maximum is attained at one of the operator start times.
+	 * Used only for a config sanity warning (a floor that exceeds this can never be met).
+	 */
+	public int maxActivationCapacity() {
+		int max = 0;
+		for (Operator operator : operators.values()) {
+			max = Math.max(max, activationCapacityAt(operator.startTime));
+		}
+		return max;
+	}
+
+	/**
 	 * Marks whether the operator with {@code operatorId} is currently processing an incident. Called by the
 	 * {@link IncidentDispatcher} on assignment / resolution. A busy operator is never released.
 	 */
