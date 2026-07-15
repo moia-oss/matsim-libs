@@ -7,9 +7,14 @@ import org.matsim.contrib.common.zones.systems.grid.square.SquareGridZoneSystemP
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsControlerCreator;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.guidance.config.IncidentParams;
+import org.matsim.contrib.drt.extension.operations.guidance.config.IncidentSeverityParams;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
-import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleAssignedToOperatorEvent;
-import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleReleasedFromOperatorEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentAssignedToOperatorEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentResolvedEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentStartedEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleActivatedForRemoteGuidanceEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilitiesParams;
 import org.matsim.contrib.drt.extension.operations.shifts.config.ShiftsParams;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
@@ -165,6 +170,17 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		remoteGuidanceParams.setDefaultOperatorCapacity(OPERATOR_CAPACITY);
 		remoteGuidanceParams.setMinRemainingShiftTimeForActivation(0);
 
+		// stochastic incidents: one severity class, ~0.1 incidents/veh-km, ~5 min median handling time. High enough
+		// that the small scenario reliably produces incidents (exercises hold + M/M/m queue).
+		IncidentParams incidentParams = (IncidentParams) remoteGuidanceParams.createParameterSet(IncidentParams.SET_NAME);
+		IncidentSeverityParams severityParams = (IncidentSeverityParams) incidentParams.createParameterSet(IncidentSeverityParams.SET_NAME);
+		severityParams.setSeverityName("default");
+		severityParams.setLambdaPerMeter(1e-4);
+		severityParams.setDurationMu(Math.log(300));
+		severityParams.setDurationSigma(0.5);
+		incidentParams.addParameterSet(severityParams);
+		remoteGuidanceParams.addParameterSet(incidentParams);
+
 		drtCfg.addParameterSet(operationsParams);
 
 		DrtFareParams drtFareParams = new DrtFareParams();
@@ -175,10 +191,12 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		final Controler controler = DrtOperationsControlerCreator.createControler(config, false);
 
 		ConcurrencyTracker tracker = new ConcurrencyTracker();
+		IncidentTracker incidentTracker = new IncidentTracker();
 		controler.addOverridingModule(new AbstractModule() {
 			@Override
 			public void install() {
 				addEventHandlerBinding().toInstance(tracker);
+				addEventHandlerBinding().toInstance(incidentTracker);
 			}
 		});
 
@@ -188,32 +206,76 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		assertThat(tracker.totalAssignments).isPositive();
 		// concurrent supervised vehicles must never exceed the combined operator capacity
 		assertThat(tracker.maxConcurrent).isLessThanOrEqualTo(NUMBER_OF_OPERATORS * OPERATOR_CAPACITY);
+
+		// incidents must be generated, assigned and resolved
+		assertThat(incidentTracker.started).isPositive();
+		assertThat(incidentTracker.resolved).isPositive();
+		// lifecycle ordering: assigned ⊆ started, resolved ⊆ assigned (a few may still be queued/in-service at run end)
+		assertThat(incidentTracker.assigned).isLessThanOrEqualTo(incidentTracker.started);
+		assertThat(incidentTracker.resolved).isLessThanOrEqualTo(incidentTracker.assigned);
+		// at most NUMBER_OF_OPERATORS incidents in service at once (one incident occupies exactly one operator)
+		assertThat(incidentTracker.maxConcurrentInService).isLessThanOrEqualTo(NUMBER_OF_OPERATORS);
 	}
 
 	/**
-	 * Tracks per-operator load and global concurrency from the remote guidance events.
+	 * Tracks global concurrency of the (unbound, D15) supervised fleet from the activation/deactivation events.
 	 */
 	private static final class ConcurrencyTracker implements BasicEventHandler {
-		private final Map<Id<DvrpVehicle>, Id<DrtShift>> supervisedBy = new HashMap<>();
+		private final Set<Id<DvrpVehicle>> supervised = new HashSet<>();
 		private int maxConcurrent = 0;
 		private int totalAssignments = 0;
 
 		@Override
 		public void handleEvent(org.matsim.api.core.v01.events.Event event) {
-			if (event instanceof VehicleAssignedToOperatorEvent assigned) {
-				supervisedBy.put(assigned.getVehicleId(), assigned.getOperatorId());
+			if (event instanceof VehicleActivatedForRemoteGuidanceEvent activated) {
+				supervised.add(activated.getVehicleId());
 				totalAssignments++;
-				maxConcurrent = Math.max(maxConcurrent, supervisedBy.size());
-			} else if (event instanceof VehicleReleasedFromOperatorEvent released) {
-				supervisedBy.remove(released.getVehicleId());
+				maxConcurrent = Math.max(maxConcurrent, supervised.size());
+			} else if (event instanceof VehicleDeactivatedForRemoteGuidanceEvent deactivated) {
+				supervised.remove(deactivated.getVehicleId());
 			}
 		}
 
 		@Override
 		public void reset(int iteration) {
-			supervisedBy.clear();
+			supervised.clear();
 			maxConcurrent = 0;
 			totalAssignments = 0;
+		}
+	}
+
+	/**
+	 * Tracks the incident lifecycle (started → assigned → resolved) and the peak number of incidents concurrently in
+	 * service (assigned but not yet resolved), which must never exceed the operator server pool.
+	 */
+	private static final class IncidentTracker implements BasicEventHandler {
+		private int started = 0;
+		private int assigned = 0;
+		private int resolved = 0;
+		private int inService = 0;
+		private int maxConcurrentInService = 0;
+
+		@Override
+		public void handleEvent(org.matsim.api.core.v01.events.Event event) {
+			if (event instanceof IncidentStartedEvent) {
+				started++;
+			} else if (event instanceof IncidentAssignedToOperatorEvent) {
+				assigned++;
+				inService++;
+				maxConcurrentInService = Math.max(maxConcurrentInService, inService);
+			} else if (event instanceof IncidentResolvedEvent) {
+				resolved++;
+				inService--;
+			}
+		}
+
+		@Override
+		public void reset(int iteration) {
+			started = 0;
+			assigned = 0;
+			resolved = 0;
+			inService = 0;
+			maxConcurrentInService = 0;
 		}
 	}
 }

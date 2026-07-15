@@ -47,6 +47,18 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 			+ "operator. Prevents activating vehicles shortly before an operator shift ends. Defaults to 1800.")
 	private double minRemainingShiftTimeForActivation = 1800;
 
+	@Parameter
+	@Comment("Idle timeout in [seconds]: a supervised vehicle that has been idle in service (waiting with no committed "
+			+ "future work) for longer than this is deactivated and returned to a hub (demand-slack recall). "
+			+ "Defaults to 900.")
+	private double idleTimeout = 900;
+
+	@Parameter
+	@Comment("Proactive recall lead time in [seconds]: vehicles are recalled to a hub already when supervision capacity "
+			+ "will drop within this look-ahead window (e.g. an operator shift ending soon), so they arrive at the hub "
+			+ "in time instead of being caught on the road when capacity actually falls. Defaults to 900.")
+	private double recallLeadTime = 900;
+
 	// optional: stochastic incident handling. If absent, no incidents are generated.
 	@Nullable
 	private IncidentParams incidentParams;
@@ -84,6 +96,22 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 
 	public void setMinRemainingShiftTimeForActivation(double minRemainingShiftTimeForActivation) {
 		this.minRemainingShiftTimeForActivation = minRemainingShiftTimeForActivation;
+	}
+
+	public double getIdleTimeout() {
+		return idleTimeout;
+	}
+
+	public void setIdleTimeout(double idleTimeout) {
+		this.idleTimeout = idleTimeout;
+	}
+
+	public double getRecallLeadTime() {
+		return recallLeadTime;
+	}
+
+	public void setRecallLeadTime(double recallLeadTime) {
+		this.recallLeadTime = recallLeadTime;
 	}
 
 	@Override

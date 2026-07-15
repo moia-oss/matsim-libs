@@ -289,14 +289,22 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
     @Override
     public boolean updateShiftChange(ShiftDvrpVehicle vehicle, VrpPathWithTravelData vrpPath, DrtShift shift,
                                      ReservationManager.ReservationInfo<OperationFacility, DvrpVehicle> reservation,
-                                     Task lastTask) {
-        updateShiftChangeImpl(vehicle, vrpPath, shift, reservation, lastTask);
+                                     Task lastTask, double changeoverStartTime) {
+        updateShiftChangeImpl(vehicle, vrpPath, shift, reservation, lastTask, changeoverStartTime);
         return true;
     }
 
+    /**
+     * Reshapes the tail of the schedule so the vehicle routes to the reserved facility along {@code vrpPath} and
+     * performs a {@link ShiftChangeOverTask} there, followed by a {@link WaitForShiftTask} until the vehicle's service
+     * end. Everything after {@code lastTask} is removed first. The changeover begins at
+     * {@code max(changeoverStartTime, arrival)}: passing {@code shift.getEndTime()} keeps the vehicle waiting idle at
+     * the hub until its scheduled shift end (regular end-of-shift reschedule), while passing {@code now} makes the
+     * shift end on arrival (early termination). {@code shift.getEndTime()} itself is never mutated.
+     */
     private void updateShiftChangeImpl(DvrpVehicle vehicle, VrpPathWithTravelData vrpPath,
                                        DrtShift shift, ReservationManager.ReservationInfo<OperationFacility, DvrpVehicle> reservation,
-                                       Task lastTask) {
+                                       Task lastTask, double changeoverStartTime) {
         Schedule schedule = vehicle.getSchedule();
         List<Task> copy = new ArrayList<>(schedule.getTasks().subList(lastTask.getTaskIdx() + 1, schedule.getTasks().size()));
         for (Task task : copy) {
@@ -308,18 +316,18 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
             lastTask.setEndTime(vrpPath.getDepartureTime());
             schedule.addTask(taskFactory.createDriveTask(vehicle, vrpPath, TYPE));
         }
-        if (vrpPath.getArrivalTime() < shift.getEndTime()) {
-            schedule.addTask(taskFactory.createStayTask(vehicle, vrpPath.getArrivalTime(), shift.getEndTime(), vrpPath.getToLink()));
+        if (vrpPath.getArrivalTime() < changeoverStartTime) {
+            schedule.addTask(taskFactory.createStayTask(vehicle, vrpPath.getArrivalTime(), changeoverStartTime, vrpPath.getToLink()));
         }
-        final double endTime = Math.max(shift.getEndTime(), vrpPath.getArrivalTime()) + shiftsParams.getChangeoverDuration();
-        ShiftChangeOverTask changeTask = taskFactory.createShiftChangeoverTask(vehicle, Math.max(shift.getEndTime(),
+        final double endTime = Math.max(changeoverStartTime, vrpPath.getArrivalTime()) + shiftsParams.getChangeoverDuration();
+        ShiftChangeOverTask changeTask = taskFactory.createShiftChangeoverTask(vehicle, Math.max(changeoverStartTime,
                 vrpPath.getArrivalTime()), endTime, vrpPath.getToLink(), shift, reservation.resource().getId(), reservation.reservationId());
         schedule.addTask(changeTask);
-        
+
         // Create the wait task
         WaitForShiftTask waitTask = taskFactory.createWaitForShiftStayTask(vehicle, endTime, vehicle.getServiceEndTime(),
                 vrpPath.getToLink(), reservation.resource().getId(), reservation.reservationId());
-        
+
         schedule.addTask(waitTask);
     }
 

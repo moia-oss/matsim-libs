@@ -4,6 +4,10 @@ import com.google.inject.Singleton;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.guidance.IncidentDispatcher;
+import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
+import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceShiftEndLogic;
+import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilities;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilityFinder;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilityReservationManager;
@@ -96,11 +100,41 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 				(new AssignShiftToVehicleLogicImpl(shiftsParams))
 		));
 
+		// deactivation policy: mandatory (driver) shifts never end early; remote guidance recalls vehicles on the
+		// capacityExceeded / idleTimeout triggers (D16/D17)
+		if (drtOperationsParams.getRemoteGuidanceParams().isPresent()) {
+			RemoteGuidanceParams rgParams = drtOperationsParams.getRemoteGuidanceParams().get();
+			double idleTimeout = rgParams.getIdleTimeout();
+			double recallLeadTime = rgParams.getRecallLeadTime();
+			bindModal(ShiftEndLogic.class).toProvider(modalProvider(getter -> new RemoteGuidanceShiftEndLogic(
+					getter.getModal(Fleet.class), getter.getModal(RemoteGuidanceOperators.class), idleTimeout,
+					recallLeadTime)));
+		} else {
+			bindModal(ShiftEndLogic.class).toInstance(ShiftEndLogic.NEVER);
+		}
+
+		// stochastic remote-guidance incidents (optional, opt-in via the "incidents" config set): each driving vehicle
+		// may hit an incident (Poisson over VKT) that occupies one operator for a while and holds the vehicle in place.
+		// The dispatcher is both a sim-step listener (a QSim component) AND a link-leave event handler (for VKT
+		// accumulation) — event handlers are NOT QSim components, so it is registered via both seams (cf. EV's
+		// DriveDischargingHandler).
+		drtOperationsParams.getRemoteGuidanceParams()
+				.flatMap(RemoteGuidanceParams::getIncidentParams)
+				.ifPresent(incidentParams -> {
+					addModalComponent(IncidentDispatcher.class, modalProvider(getter -> new IncidentDispatcher(
+							getMode(), incidentParams, getter.getModal(RemoteGuidanceOperators.class),
+							getter.getModal(Fleet.class), getter.get(EventsManager.class), getter.get(MobsimTimer.class),
+							getter.getModal(ScheduleTimingUpdater.class), getter.getModal(Network.class),
+							getter.getModal(TravelTime.class))));
+					addMobsimScopeEventHandlerBinding().to(modalKey(IncidentDispatcher.class));
+				});
+
 		bindModal(DrtShiftDispatcher.class).toProvider(modalProvider(
 				getter -> new DrtShiftDispatcherImpl(getMode(), getter.getModal(Fleet.class), getter.get(MobsimTimer.class),
 						getter.getModal(OperationFacilities.class), getter.getModal(OperationFacilityFinder.class),
 						getter.getModal(ShiftTaskScheduler.class), getter.get(EventsManager.class),
-						shiftsParams, new DefaultShiftStartLogic(), getter.getModal(AssignShiftToVehicleLogic.class),
+						shiftsParams, new DefaultShiftStartLogic(), getter.getModal(ShiftEndLogic.class),
+						getter.getModal(AssignShiftToVehicleLogic.class),
 						getter.getModal(ShiftScheduler.class), getter.getModal(OperationFacilityReservationManager.class)))
 		).asEagerSingleton();
 

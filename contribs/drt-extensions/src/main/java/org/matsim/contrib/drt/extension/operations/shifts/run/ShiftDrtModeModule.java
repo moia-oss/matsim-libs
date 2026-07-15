@@ -8,6 +8,7 @@ import com.google.inject.TypeLiteral;
 import org.matsim.contrib.common.timeprofile.ProfileWriter;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilitiesSpecification;
@@ -99,8 +100,14 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 
 		if (drtOperationsParams.getRemoteGuidanceParams().isPresent()) {
 			RemoteGuidanceParams remoteGuidanceParams = drtOperationsParams.getRemoteGuidanceParams().get();
+			// authoritative runtime registry of operators (Σκ(t)); shared by the scheduler (activation ceiling) and,
+			// in the QSim scope, the incident dispatcher + the RG ShiftEndLogic (deactivation triggers)
+			bindModal(RemoteGuidanceOperators.class).toInstance(RemoteGuidanceOperators.fromSpecification(
+					drtShiftsSpecification, remoteGuidanceParams.getOperatorShiftType(),
+					remoteGuidanceParams.getDefaultOperatorCapacity()));
 			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> RemoteGuidanceScheduler.create(
-					drtShiftsSpecification, remoteGuidanceParams, getter.get(EventsManager.class), getMode())));
+					drtShiftsSpecification, getter.getModal(RemoteGuidanceOperators.class), remoteGuidanceParams,
+					getter.get(EventsManager.class), getMode(), shiftsParams.getChangeoverDuration())));
 		} else {
 			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> new DefaultShiftScheduler(drtShiftsSpecification)));
 		}

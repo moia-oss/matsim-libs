@@ -13,15 +13,15 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Id;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
-import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleAssignedToOperatorEvent;
-import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleReleasedFromOperatorEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleActivatedForRemoteGuidanceEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent.DeactivationReason;
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DefaultShiftScheduler;
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.ShiftScheduler;
 import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftImpl;
-import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftSpecification;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftSpecificationImpl;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftsSpecification;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
@@ -31,29 +31,34 @@ import org.matsim.contrib.dvrp.schedule.Task;
 import org.matsim.core.api.experimental.events.EventsManager;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * A {@link ShiftScheduler} that implements remote guidance: operator shifts (shifts of the configured operator type)
- * are not assigned to vehicles directly. Instead, each is turned into a {@link RemoteGuidanceOperator} that can
- * supervise up to a configurable number of vehicles at once. Every time step, this scheduler emits "virtual" driver
- * shifts for idle vehicles as long as some operator still has free capacity. These virtual shifts are processed by the
- * regular {@link org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DrtShiftDispatcher} exactly like normal
- * shifts: the dispatcher assigns each to an idle vehicle, starts it, and on operator-shift end sends the vehicle back
- * to a hub (where it becomes available for re-activation under another operator — i.e. a hub-based handover).
+ * are not assigned to vehicles directly. Instead they define the aggregate supervision capacity {@code Σκ(t)} of the
+ * operator pool, tracked by the authoritative {@link RemoteGuidanceOperators} registry (D15 — there is no longer a
+ * {@code RemoteGuidanceOperator} wrapper nor any per-vehicle&harr;operator binding). Every step, this scheduler emits
+ * "virtual" driver shifts for idle-at-hub vehicles as long as the active count is below the current ceiling. These
+ * virtual shifts are processed by the regular {@link org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DrtShiftDispatcher}
+ * exactly like normal shifts: the dispatcher assigns each to an idle vehicle and starts it. A virtual shift has
+ * <b>no scheduled end of its own</b> — it is created with {@code end = the simulation horizon} (D16) and is ended
+ * early on demand by {@link RemoteGuidanceShiftEndLogic} (capacity exceeded / idle timeout), which drives the
+ * dispatcher's early-end mechanism.
  * <p>
  * Non-operator shifts (regular driver shifts) are passed through unchanged, so a fleet may combine driver shifts and
  * remote guidance.
  * <p>
- * Operator capacity is reconciled from the fleet state at the start of every {@link #schedule(double, Fleet)} call.
- * This is exact because the dispatcher always invokes the scheduler before assigning shifts within the same step, so by
- * then every previously emitted virtual shift is either live in a vehicle's shift queue or has been discarded.
+ * This scheduler <em>observes</em> the extensive margin and fires the two vehicle events: it detects which virtual
+ * shifts became live (→ {@link VehicleActivatedForRemoteGuidanceEvent}) and which ended (→
+ * {@link VehicleDeactivatedForRemoteGuidanceEvent}) by scanning the fleet's shift queues each step, without any
+ * id&harr;operator bookkeeping. The deactivation reason is inferred from the aggregate signal: if the number of
+ * still-supervised vehicles remains at or above {@code capacityAt(now)}, the release was forced by a capacity drop
+ * ({@link DeactivationReason#capacityExceeded}); otherwise a below-ceiling release is a demand-slack recall
+ * ({@link DeactivationReason#idleTimeout}). This mirrors the two triggers in {@link RemoteGuidanceShiftEndLogic}.
  *
  * @author nkuehnel / MOIA
  */
@@ -64,27 +69,33 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	static final String VIRTUAL_SHIFT_TYPE = "remoteGuidanceVirtual";
 
 	private final ShiftScheduler delegate;
+	private final RemoteGuidanceOperators operators;
 	private final RemoteGuidanceParams params;
 	private final EventsManager eventsManager;
 	private final String mode;
+	private final double changeoverDuration;
 
 	// runtime state, (re)initialized on each initialSchedule() (i.e. per iteration)
-	private Map<Id<DrtShift>, RemoteGuidanceOperator> operators;
-	private Map<Id<DrtShift>, Id<DrtShift>> virtualShiftToOperator;
-	private Map<Id<DrtShift>, LiveSupervision> liveSupervisions;
+	private Map<Id<DrtShift>, Id<DvrpVehicle>> liveVirtualShifts;
 	// virtual shifts that became live (and thus were registered in the shift specification so that they can be
 	// analysed like regular shifts); kept across iterations only to purge them at the start of the next one.
 	private final Set<Id<DrtShift>> registeredVirtualSpecs = new HashSet<>();
 	private long virtualShiftCounter;
+	// the "simulation horizon" end assigned to every virtual shift (D16). Lazily derived from the fleet on the first
+	// schedule() call as (minimum service end time − changeover duration), so that startShift's eagerly-materialised
+	// end-of-shift tail (a changeover of length changeoverDuration ending at end+changeoverDuration, plus its landing
+	// reservation) fits entirely within the vehicle's service end for whichever vehicle the dispatcher picks.
+	private double virtualShiftEndTime = Double.NaN;
 
-	private record LiveSupervision(Id<DrtShift> operatorId, Id<DvrpVehicle> vehicleId, DrtShift shift) {}
-
-	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceParams params, EventsManager eventsManager,
-								   String mode) {
+	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceOperators operators,
+								   RemoteGuidanceParams params, EventsManager eventsManager, String mode,
+								   double changeoverDuration) {
 		this.delegate = delegate;
+		this.operators = operators;
 		this.params = params;
 		this.eventsManager = eventsManager;
 		this.mode = mode;
+		this.changeoverDuration = changeoverDuration;
 	}
 
 	@Override
@@ -96,17 +107,14 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		}
 		registeredVirtualSpecs.clear();
 
-		// (re)build operators and reset state for this iteration
-		operators = new LinkedHashMap<>();
-		virtualShiftToOperator = new HashMap<>();
-		liveSupervisions = new HashMap<>();
+		// (re)init runtime state for this iteration
+		liveVirtualShifts = new HashMap<>();
 		virtualShiftCounter = 0;
 
+		// operator shifts define capacity only (via the registry) and are NOT handed to the dispatcher for assignment
 		ImmutableMap.Builder<Id<DrtShift>, DrtShift> driverShifts = ImmutableMap.builder();
 		for (DrtShift shift : delegate.initialSchedule().values()) {
-			if (isOperatorShift(shift)) {
-				operators.put(shift.getId(), new RemoteGuidanceOperator(shift, params.getDefaultOperatorCapacity()));
-			} else {
+			if (!isOperatorShift(shift)) {
 				driverShifts.put(shift.getId(), shift);
 			}
 		}
@@ -117,106 +125,89 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	@Override
 	public List<DrtShift> schedule(double now, Fleet fleet) {
+		if (Double.isNaN(virtualShiftEndTime)) {
+			double minServiceEnd = fleet.getVehicles().values().stream()
+					.mapToDouble(DvrpVehicle::getServiceEndTime)
+					.min()
+					.orElse(now);
+			virtualShiftEndTime = minServiceEnd - changeoverDuration;
+		}
+
 		List<DrtShift> emitted = new ArrayList<>(delegate.schedule(now, fleet));
 
 		reconcileSupervisions(now, fleet);
 
-		int idleVehicles = countIdleVehicles(fleet);
-		if (idleVehicles == 0) {
+		// D22: release operators that have passed their planned end, but only as far as the (now reconciled) active
+		// supervised fleet allows without breaking coverage — a retained operator keeps supervising its vehicles and
+		// finishing any pending incident until its vehicles have gone home. Runs before emission so the freshly-released
+		// operators no longer count toward the activation ceiling below.
+		operators.releaseElapsedOperators(now, liveVirtualShifts.size());
+
+		// activation (D17 baseline trigger): bring idle-at-hub vehicles in while below the activation ceiling. This uses
+		// the PLANNED-window capacity (not coverage): a winding-down operator retained past its planned end must not pull
+		// new vehicles in.
+		int capacity = operators.activationCapacityAt(now);
+		int freeCapacity = capacity - liveVirtualShifts.size();
+		if (freeCapacity <= 0) {
 			return emitted;
 		}
-
-		// operators that can still take vehicles, preferring those with the most remaining shift time to reduce churn
-		List<RemoteGuidanceOperator> available = operators.values().stream()
-				.filter(op -> canActivateUnder(op, now))
-				.filter(RemoteGuidanceOperator::hasFreeCapacity)
-				.sorted(Comparator.comparingDouble(RemoteGuidanceOperator::getEndTime).reversed())
-				.toList();
-
-		for (RemoteGuidanceOperator operator : available) {
-			while (idleVehicles > 0 && operator.hasFreeCapacity()) {
-				DrtShift virtualShift = createVirtualShift(operator, now);
-				operator.reserveSlot(virtualShift.getId());
-				virtualShiftToOperator.put(virtualShift.getId(), operator.getId());
-				emitted.add(virtualShift);
-				idleVehicles--;
-			}
-			if (idleVehicles == 0) {
-				break;
-			}
+		int idleAtHub = countIdleAtHubVehicles(fleet);
+		int toEmit = Math.min(freeCapacity, idleAtHub);
+		for (int i = 0; i < toEmit; i++) {
+			emitted.add(createVirtualShift(now));
 		}
 		return emitted;
 	}
 
 	/**
-	 * Recomputes, from the current fleet state, which virtual shifts are live (present in a vehicle's shift queue) and
-	 * under which operator. Fires assignment/release events on transitions and keeps operator capacity in sync.
+	 * Recomputes, from the current fleet state, which virtual shifts are live (present in a vehicle's shift queue).
+	 * Fires activation/deactivation events on transitions. Emission itself no longer needs an id&harr;operator map:
+	 * a virtual shift is recognised purely by its shift type.
 	 */
 	private void reconcileSupervisions(double now, Fleet fleet) {
-		// map of currently live virtual shifts -> (supervising vehicle, shift)
-		Map<Id<DrtShift>, LiveSupervision> currentlyLive = new HashMap<>();
+		Map<Id<DrtShift>, Id<DvrpVehicle>> currentlyLive = new HashMap<>();
 		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
 			if (vehicle instanceof ShiftDvrpVehicle shiftVehicle) {
 				for (DrtShift shift : shiftVehicle.getShifts()) {
-					Id<DrtShift> operatorId = virtualShiftToOperator.get(shift.getId());
-					if (operatorId != null) {
-						currentlyLive.put(shift.getId(), new LiveSupervision(operatorId, vehicle.getId(), shift));
+					if (isVirtualShift(shift)) {
+						currentlyLive.put(shift.getId(), vehicle.getId());
 					}
 				}
 			}
 		}
 
-		// newly assigned: live now but not tracked before
-		for (Map.Entry<Id<DrtShift>, LiveSupervision> entry : currentlyLive.entrySet()) {
-			Id<DrtShift> virtualShiftId = entry.getKey();
-			if (!liveSupervisions.containsKey(virtualShiftId)) {
-				LiveSupervision supervision = entry.getValue();
-				liveSupervisions.put(virtualShiftId, supervision);
-				// register the virtual shift in the shared specification so analyses can resolve it like a real shift
-				registerVirtualShiftSpec(supervision.shift());
-				eventsManager.processEvent(
-						new VehicleAssignedToOperatorEvent(now, mode, supervision.operatorId(), supervision.vehicleId()));
+		// newly activated: live now but not tracked before
+		for (Map.Entry<Id<DrtShift>, Id<DvrpVehicle>> entry : currentlyLive.entrySet()) {
+			if (!liveVirtualShifts.containsKey(entry.getKey())) {
+				registerVirtualShiftSpec(entry.getKey());
+				eventsManager.processEvent(new VehicleActivatedForRemoteGuidanceEvent(now, mode, entry.getValue()));
 			}
 		}
 
-		// released: tracked before but no longer live (virtual shift ended)
-		Set<Id<DrtShift>> ended = new HashSet<>(liveSupervisions.keySet());
+		// deactivated: tracked before but no longer live (virtual shift ended)
+		Set<Id<DrtShift>> ended = new HashSet<>(liveVirtualShifts.keySet());
 		ended.removeAll(currentlyLive.keySet());
-		for (Id<DrtShift> virtualShiftId : ended) {
-			LiveSupervision supervision = liveSupervisions.remove(virtualShiftId);
-			RemoteGuidanceOperator operator = operators.get(supervision.operatorId());
-			VehicleReleasedFromOperatorEvent.ReleaseReason reason = operator != null && now >= operator.getEndTime()
-					? VehicleReleasedFromOperatorEvent.ReleaseReason.operatorShiftEnded
-					: VehicleReleasedFromOperatorEvent.ReleaseReason.vehicleReturned;
-			eventsManager.processEvent(new VehicleReleasedFromOperatorEvent(now, mode, supervision.operatorId(),
-					supervision.vehicleId(), reason));
+		int capacity = operators.capacityAt(now);
+		int stillLive = currentlyLive.size();
+		for (Id<DrtShift> endedShiftId : ended) {
+			Id<DvrpVehicle> vehicleId = liveVirtualShifts.get(endedShiftId);
+			// aggregate inference of the trigger (mirrors RemoteGuidanceShiftEndLogic): still at/over the ceiling → the
+			// release was forced by a capacity drop; below the ceiling → a demand-slack (idle-timeout) recall.
+			DeactivationReason reason = stillLive >= capacity
+					? DeactivationReason.capacityExceeded
+					: DeactivationReason.idleTimeout;
+			eventsManager.processEvent(new VehicleDeactivatedForRemoteGuidanceEvent(now, mode, vehicleId, reason));
 		}
 
-		// re-synchronize operator capacity with the live (assigned, not yet ended) virtual shifts
-		for (RemoteGuidanceOperator operator : operators.values()) {
-			operator.clearReservations();
-		}
-		for (Map.Entry<Id<DrtShift>, LiveSupervision> entry : liveSupervisions.entrySet()) {
-			RemoteGuidanceOperator operator = operators.get(entry.getValue().operatorId());
-			if (operator != null) {
-				operator.reserveSlot(entry.getKey());
-			}
-		}
-
-		// prune mappings of virtual shifts that were emitted but never became live (discarded by the dispatcher)
-		virtualShiftToOperator.keySet().removeIf(id -> !currentlyLive.containsKey(id) && !liveSupervisions.containsKey(id));
+		liveVirtualShifts = currentlyLive;
 	}
 
-	private boolean canActivateUnder(RemoteGuidanceOperator operator, double now) {
-		return operator.getStartTime() <= now
-				&& now + params.getMinRemainingShiftTimeForActivation() <= operator.getEndTime();
-	}
-
-	private DrtShift createVirtualShift(RemoteGuidanceOperator operator, double now) {
-		Id<DrtShift> id = Id.create("rg_" + operator.getId() + "_" + (virtualShiftCounter++), DrtShift.class);
+	private DrtShift createVirtualShift(double now) {
+		Id<DrtShift> id = Id.create("rg_" + (virtualShiftCounter++) + "_" + (long) now, DrtShift.class);
 		// no fixed facility: the vehicle is activated from / returns to any hub (hub-based handover);
-		// no designated vehicle: the dispatcher matches an idle vehicle.
-		return new DrtShiftImpl(id, now, operator.getEndTime(), null, null, null, VIRTUAL_SHIFT_TYPE);
+		// no designated vehicle: the dispatcher matches an idle vehicle;
+		// end = simulation horizon (D16): the shift runs until a deactivation trigger recalls it early.
+		return new DrtShiftImpl(id, now, virtualShiftEndTime, null, null, null, VIRTUAL_SHIFT_TYPE);
 	}
 
 	/**
@@ -224,18 +215,18 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	 * efficiency, dumps) can resolve it like any regular shift. The spec is kept until the next iteration, where it is
 	 * purged in {@link #initialSchedule()}.
 	 */
-	private void registerVirtualShiftSpec(DrtShift shift) {
-		if (registeredVirtualSpecs.add(shift.getId())) {
+	private void registerVirtualShiftSpec(Id<DrtShift> shiftId) {
+		if (registeredVirtualSpecs.add(shiftId)) {
 			delegate.get().addShiftSpecification(DrtShiftSpecificationImpl.newBuilder()
-					.id(shift.getId())
-					.start(shift.getStartTime())
-					.end(shift.getEndTime())
-					.type(shift.getShiftType().orElse(VIRTUAL_SHIFT_TYPE))
+					.id(shiftId)
+					.start(0)
+					.end(virtualShiftEndTime)
+					.type(VIRTUAL_SHIFT_TYPE)
 					.build());
 		}
 	}
 
-	private int countIdleVehicles(Fleet fleet) {
+	private int countIdleAtHubVehicles(Fleet fleet) {
 		int count = 0;
 		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
 			if (vehicle instanceof ShiftDvrpVehicle shiftVehicle && shiftVehicle.getShifts().isEmpty()) {
@@ -255,6 +246,10 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		return shift.getShiftType().map(params.getOperatorShiftType()::equals).orElse(false);
 	}
 
+	private static boolean isVirtualShift(DrtShift shift) {
+		return shift.getShiftType().map(VIRTUAL_SHIFT_TYPE::equals).orElse(false);
+	}
+
 	@Override
 	public DrtShiftsSpecification get() {
 		return delegate.get();
@@ -263,8 +258,10 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	/**
 	 * Convenience factory wrapping a {@link DefaultShiftScheduler} over the given specification.
 	 */
-	public static RemoteGuidanceScheduler create(DrtShiftsSpecification specification, RemoteGuidanceParams params,
-												 EventsManager eventsManager, String mode) {
-		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), params, eventsManager, mode);
+	public static RemoteGuidanceScheduler create(DrtShiftsSpecification specification, RemoteGuidanceOperators operators,
+												 RemoteGuidanceParams params, EventsManager eventsManager, String mode,
+												 double changeoverDuration) {
+		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, params, eventsManager,
+				mode, changeoverDuration);
 	}
 }
