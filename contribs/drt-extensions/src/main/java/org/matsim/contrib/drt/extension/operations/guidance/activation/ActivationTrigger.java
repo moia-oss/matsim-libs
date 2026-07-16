@@ -12,11 +12,14 @@ package org.matsim.contrib.drt.extension.operations.guidance.activation;
  * A pluggable, OR-combinable activation policy for the remote guidance extensive margin (RF1 / D17). Each trigger reads
  * the current {@link GuidanceState} and proposes how many vehicles <em>should</em> be active according to its own
  * concern — an <b>absolute desired active count</b>, not a delta. The {@link ActivationReconciler} combines several
- * triggers by taking the maximum (OR semantics: any trigger may pull the fleet up), then clamps to the hard floor
- * {@code nMin} and the hard ceiling {@link GuidanceState#activationCapacity()}.
+ * triggers by taking the maximum (OR semantics: any trigger may pull the fleet up), then clamps to the hard ceiling
+ * {@link GuidanceState#activationCapacity()}. The combined target governs both activation and deactivation, so a trigger
+ * added here automatically constrains how far the deactivation side may recall too.
  * <p>
  * Absolute-desired (rather than delta) is deliberate: two triggers reacting to the same signal both name the same
- * target, so {@code max} de-duplicates them; summing deltas would double-count.
+ * target, so {@code max} de-duplicates them; summing deltas would double-count. A trigger's target may be below the
+ * current active count (e.g. a responsiveness buffer once demand drops) — that is how it signals the deactivation side
+ * to ramp down; the activation side clamps such a gap to zero.
  *
  * @author nkuehnel / MOIA
  */

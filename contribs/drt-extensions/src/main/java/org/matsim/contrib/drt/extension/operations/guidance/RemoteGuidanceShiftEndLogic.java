@@ -9,10 +9,13 @@
 package org.matsim.contrib.drt.extension.operations.guidance;
 
 import org.matsim.api.core.v01.Id;
+import org.matsim.contrib.drt.extension.operations.guidance.activation.ActivationReconciler;
+import org.matsim.contrib.drt.extension.operations.guidance.activation.GuidanceState;
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DrtShiftDispatcher;
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.ShiftEndLogic;
 import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftSchedules;
+import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.schedule.DrtStayTask;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
@@ -37,7 +40,12 @@ import java.util.Set;
  *         supervised than the new ceiling allows, recall the excess. This is the (only, implicit) handover.</li>
  *     <li><b>idleTimeout</b>: a supervised vehicle that has been <em>truly idle in service</em> (D19: on a
  *         {@link DrtStayTask} that is the last task in its schedule) for longer than the configured timeout is a
- *         demand-slack signal → recall it.</li>
+ *         demand-slack signal → recall it, but only down to the shared fleet-sizing target from the
+ *         {@link ActivationReconciler}. This side builds the same {@code GuidanceState} snapshot and reads the same
+ *         reconciler as the activation side ({@link RemoteGuidanceScheduler}), so it recalls DOWN to exactly the target
+ *         the activation side ramps UP to. Whatever set that target — the regulatory floor, the responsiveness buffer,
+ *         or a future demand-driven trigger — is honoured identically on both margins, so a demand lull settles at the
+ *         target with no churn, without a cooldown.</li>
  * </ol>
  * When recalling for capacity, <em>idle-in-service vehicles are chosen first</em> (least passenger disruption), then
  * others; recall itself is attempt-and-defer (handled by the dispatcher — a vehicle that cannot be routed to a hub now
@@ -63,16 +71,18 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 	private final RemoteGuidanceOperators operators;
 	private final double idleTimeout;
 	private final double recallLeadTime;
+	private final ActivationReconciler reconciler;
 
 	private double lastComputedTime = Double.NaN;
 	private Set<Id<DrtShift>> recallSet = new HashSet<>();
 
 	public RemoteGuidanceShiftEndLogic(Fleet fleet, RemoteGuidanceOperators operators, double idleTimeout,
-									   double recallLeadTime) {
+									   double recallLeadTime, ActivationReconciler reconciler) {
 		this.fleet = fleet;
 		this.operators = operators;
 		this.idleTimeout = idleTimeout;
 		this.recallLeadTime = recallLeadTime;
+		this.reconciler = reconciler;
 	}
 
 	@Override
@@ -90,30 +100,54 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 
 	/**
 	 * Determines, across the whole currently-supervised virtual fleet, which shifts should be recalled this step:
-	 * every vehicle idle in service beyond the timeout, plus — if the active count exceeds the ceiling — enough
-	 * additional (idle-first) vehicles to bring the active count back down to {@code capacityAt(now)}.
+	 * idle-in-service vehicles beyond the timeout are recalled only down to the shared fleet-sizing target
+	 * {@link ActivationReconciler#desired} (so the floor + responsiveness buffer + any future trigger are all honoured
+	 * through one value the activation side agrees on — no churn), plus — if the active count exceeds the look-ahead
+	 * ceiling — enough additional (idle-first) vehicles to bring the active count back down to capacity.
 	 */
 	private Set<Id<DrtShift>> selectRecalls(double now) {
 		List<ShiftDvrpVehicle> active = new ArrayList<>();
+		int idleAtHub = 0;
 		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
-			if (vehicle instanceof ShiftDvrpVehicle shiftVehicle) {
-				DrtShift current = shiftVehicle.getShifts().peek();
-				if (current != null && isVirtualShift(current)
-						&& vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED
-						// exclude vehicles already recalled (routing home). Since D21 a virtual shift has no eager tail,
-						// so a changeover in the schedule can only have been materialised by a recall → its mere
-						// presence means "leaving". A recall that was deferred (attempt-and-defer) has not materialised
-						// a changeover yet, so it stays counted and is retried next step.
-						&& !isAlreadyLeaving(shiftVehicle)) {
-					active.add(shiftVehicle);
-				}
+			if (!(vehicle instanceof ShiftDvrpVehicle shiftVehicle)) {
+				continue;
+			}
+			DrtShift current = shiftVehicle.getShifts().peek();
+			if (current != null && isVirtualShift(current)
+					&& vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED
+					// exclude vehicles already recalled (routing home). Since D21 a virtual shift has no eager tail,
+					// so a changeover in the schedule can only have been materialised by a recall → its mere
+					// presence means "leaving". A recall that was deferred (attempt-and-defer) has not materialised
+					// a changeover yet, so it stays counted and is retried next step.
+					&& !isAlreadyLeaving(shiftVehicle)) {
+				active.add(shiftVehicle);
+			} else if (shiftVehicle.getShifts().isEmpty()
+					&& vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED
+					&& vehicle.getSchedule().getCurrentTask() instanceof WaitForShiftTask) {
+				// out of service, waiting at a hub → an activation source (needed to build the GuidanceState the
+				// reconciler reads; see desiredActiveCount).
+				idleAtHub++;
 			}
 		}
 
 		Set<Id<DrtShift>> recalled = new HashSet<>();
 
-		// (2) idleTimeout: recall every vehicle idle in service beyond the timeout
-		for (ShiftDvrpVehicle vehicle : active) {
+		// (2) idleTimeout: recall idle-in-service vehicles that are beyond the timeout, but only the surplus ABOVE the
+		// shared target. keepIdle is exactly the number of idle-in-service vehicles the target wants held (target minus
+		// the busy vehicles it is already covered by), clamped to what is actually idle. Because the activation side
+		// pulls the fleet UP to the same target and this side only recalls DOWN to it, a demand lull settles at the
+		// target with no churn — whatever set the target (regulatory floor, responsiveness buffer, a future
+		// demand-driven trigger) is honoured identically on both margins. The freshest idle vehicles are kept; the
+		// longest-idle ones (the strongest demand-slack signal) are recalled first.
+		List<ShiftDvrpVehicle> idleInService = active.stream()
+				.filter(this::isIdleInService)
+				.sorted(Comparator.comparingDouble((ShiftDvrpVehicle v) -> idleInServiceElapsed(v, now))
+						.thenComparing(v -> v.getId().toString()))
+				.toList();
+		int desired = desiredActiveCount(active.size(), idleInService.size(), idleAtHub, now);
+		int keepIdle = idleToKeep(active.size(), idleInService.size(), desired);
+		for (int i = keepIdle; i < idleInService.size(); i++) {
+			ShiftDvrpVehicle vehicle = idleInService.get(i);
 			if (idleInServiceElapsed(vehicle, now) > idleTimeout) {
 				recalled.add(vehicle.getShifts().peek().getId());
 			}
@@ -134,6 +168,36 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 		}
 
 		return recalled;
+	}
+
+	/**
+	 * How many of the idle-in-service vehicles to <em>keep</em> (spare from the idle-timeout recall) so the active count
+	 * settles at the shared {@code desired} target: the target minus the {@code busy = activeCount − idleInService}
+	 * vehicles it is already covered by, clamped to {@code [0, idleInService]}. This is the churn-guard: because the
+	 * activation side ramps UP to {@code desired} and this keeps enough idle to hold the fleet at {@code desired}, a
+	 * demand lull settles there rather than oscillating — whatever set the target (floor, responsiveness buffer, a future
+	 * trigger). Pure arithmetic, package-private for unit testing.
+	 */
+	static int idleToKeep(int activeCount, int idleInService, int desired) {
+		int busy = activeCount - idleInService;
+		return Math.min(Math.max(0, desired - busy), idleInService);
+	}
+
+	/**
+	 * The shared fleet-sizing target this step: builds a {@link GuidanceState} snapshot and asks the same
+	 * {@link ActivationReconciler#desired} policy the activation side uses, so activation (ramp up to the target) and
+	 * this side (recall down to it) apply one policy and cannot disagree on where the fleet should settle. The two
+	 * snapshots are not byte-identical — this side deliberately excludes vehicles already routing home
+	 * ({@link #isAlreadyLeaving}) from {@code activeCount}, whereas the scheduler counts every live virtual shift — but
+	 * the default policy's target ({@code busy + buffer}, floor) does not depend on that difference. A future trigger
+	 * whose target reads {@code activeCount} directly would need to account for this transient. Uses the PLANNED-window
+	 * ceiling {@code Σκ} at {@code now} (like the scheduler); the separate look-ahead capacity reduction is the
+	 * {@code capacityExceeded} pass.
+	 */
+	private int desiredActiveCount(int activeCount, int idleInService, int idleAtHub, double now) {
+		GuidanceState state = new GuidanceState(activeCount, operators.activationCapacityAt(now), idleAtHub,
+				idleInService, 0.0);
+		return reconciler.desired(state, now);
 	}
 
 	/**

@@ -7,6 +7,7 @@ import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.operations.guidance.IncidentDispatcher;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceShiftEndLogic;
+import org.matsim.contrib.drt.extension.operations.guidance.activation.ActivationReconciler;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilities;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilityFinder;
@@ -106,9 +107,13 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 			RemoteGuidanceParams rgParams = drtOperationsParams.getRemoteGuidanceParams().get();
 			double idleTimeout = rgParams.getIdleTimeout();
 			double recallLeadTime = rgParams.getRecallLeadTime();
+			// the deactivation side reads the SAME reconciler policy as the activation side (RemoteGuidanceScheduler),
+			// so both margins share one fleet-sizing target (floor + responsiveness buffer + any future trigger).
+			ActivationReconciler reconciler = ActivationReconciler.createDefault(rgParams.getMinActiveFleet(),
+					rgParams.getReadyBufferSize());
 			bindModal(ShiftEndLogic.class).toProvider(modalProvider(getter -> new RemoteGuidanceShiftEndLogic(
 					getter.getModal(Fleet.class), getter.getModal(RemoteGuidanceOperators.class), idleTimeout,
-					recallLeadTime)));
+					recallLeadTime, reconciler)));
 		} else {
 			bindModal(ShiftEndLogic.class).toInstance(ShiftEndLogic.NEVER);
 		}

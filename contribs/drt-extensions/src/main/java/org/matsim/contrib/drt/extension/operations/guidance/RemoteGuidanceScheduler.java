@@ -57,11 +57,12 @@ import java.util.Set;
  * <p>
  * <b>How many to emit is decided by pluggable activation triggers (RF1 / D17), not greedily.</b> Each step the
  * scheduler builds a narrow {@link GuidanceState} snapshot and hands it to an {@link ActivationReconciler}, which
- * OR-combines the configured {@link ActivationTrigger}s (max of their desired active counts), clamps to the hard floor
- * {@code nMin} and the activation ceiling {@code Σκ}, and returns how many new virtual shifts to emit. The default
- * trigger is a single {@link IdleBufferActivation} (keep exactly one ready buffer vehicle) over the reconciler's
- * {@code nMin} floor, which damps the low-demand activate&harr;idle-timeout&harr;recall sawtooth the old greedy emit
- * produced.
+ * OR-combines the configured {@link ActivationTrigger}s into one fleet-sizing target (max of their desired active
+ * counts, clamped to the activation ceiling {@code Σκ}) and returns how many new virtual shifts to emit to reach it.
+ * The default policy is the regulatory floor plus a single {@link IdleBufferActivation} responsiveness buffer. The very
+ * same reconciler (built from the same config) is read by {@link RemoteGuidanceShiftEndLogic} on the deactivation side,
+ * so both margins share one target — which is what damps the low-demand activate&harr;idle-timeout&harr;recall sawtooth
+ * the old greedy emit produced.
  * <p>
  * Non-operator shifts (regular driver shifts) are passed through unchanged, so a fleet may combine driver shifts and
  * remote guidance.
@@ -315,16 +316,17 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	/**
 	 * Convenience factory wrapping a {@link DefaultShiftScheduler} over the given specification, with the default
-	 * activation policy (RF1 / D17): an {@link IdleBufferActivation} responsiveness buffer over the reconciler's
-	 * {@code minActiveFleet} floor. The floor lives solely on the reconciler (a single source), so it is enforced even
-	 * with an empty trigger list. The greedy baseline ({@code GreedyIdleActivation}) is deliberately NOT in the default
-	 * set — it reproduces the low-demand sawtooth.
+	 * activation policy from {@link ActivationReconciler#createDefault} (RF1 / D17): the regulatory {@code minActiveFleet}
+	 * floor plus an {@link IdleBufferActivation} responsiveness buffer. The deactivation side ({@link
+	 * RemoteGuidanceShiftEndLogic}) builds an identical reconciler from the same params, so both margins share one
+	 * fleet-sizing target. The greedy baseline ({@code GreedyIdleActivation}) is deliberately NOT in the default set —
+	 * it reproduces the low-demand sawtooth.
 	 */
 	public static RemoteGuidanceScheduler create(DrtShiftsSpecification specification, RemoteGuidanceOperators operators,
 												 RemoteGuidanceParams params, EventsManager eventsManager, String mode,
 												 double changeoverDuration) {
-		List<ActivationTrigger> triggers = List.of(new IdleBufferActivation());
-		ActivationReconciler reconciler = new ActivationReconciler(triggers, params.getMinActiveFleet());
+		ActivationReconciler reconciler = ActivationReconciler.createDefault(params.getMinActiveFleet(),
+				params.getReadyBufferSize());
 		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, params, eventsManager,
 				mode, changeoverDuration, reconciler);
 	}

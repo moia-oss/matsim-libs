@@ -11,31 +11,64 @@ package org.matsim.contrib.drt.extension.operations.guidance.activation;
 import java.util.List;
 
 /**
- * Combines a set of {@link ActivationTrigger}s into the single decision the {@link
- * org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler} acts on each step: <em>how many new
- * virtual shifts to emit</em>. This is pure policy over a {@link GuidanceState} snapshot — no fleet, no side effects —
- * so the whole reconciliation is unit-testable with a hand-built state (RF6).
+ * Combines a set of {@link ActivationTrigger}s into the single fleet-sizing target that governs the remote guidance
+ * extensive margin: the number of vehicles that <em>should</em> be active right now ({@link #desired}). This is pure
+ * policy over a {@link GuidanceState} snapshot — no fleet, no side effects — so it is unit-testable with a hand-built
+ * state (RF6).
  * <p>
- * Reconciliation (desired-absolute + max, OR semantics):
+ * <b>One shared target for both margins.</b> {@code desired} is read by <em>both</em> sides of the extensive margin:
+ * the {@link org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler} turns it into how many new
+ * virtual shifts to {@link #toEmit emit} (ramp up), and the deactivation side
+ * ({@code RemoteGuidanceShiftEndLogic}) uses the same value to decide how far it may recall idle vehicles (ramp down).
+ * Because every upward force — regulatory floor ({@link MinFleetActivation}), responsiveness buffer
+ * ({@link IdleBufferActivation}), and any future demand-driven trigger — is an ordinary trigger combined here by
+ * {@code max}, both sides always agree on the target and no source of it is re-derived separately (which is what caused
+ * the buffer-vs-floor churn when the two sides each had their own notion).
+ * <p>
+ * Reconciliation (absolute target + max, OR semantics):
  * <pre>
- *     desired = max over triggers of trigger.desiredActive(state, now)   // any trigger may pull the fleet up
- *     desired = clamp(desired, nMin, state.activationCapacity())         // hard floor + hard ceiling
- *     toEmit  = max(0, desired - state.activeCount())                    // only ramp up; recall is the ShiftEndLogic's job
- *     toEmit  = min(toEmit, state.idleAtHub())                           // can only emit as many as there are idle-at-hub vehicles
+ *     desired = max over triggers of trigger.desiredActive(state, now)   // any trigger may pull the target up
+ *     desired = clamp(desired, 0, state.activationCapacity())            // hard ceiling Σκ (a physical limit)
+ *     toEmit  = max(0, desired - state.activeCount())                    // activation only ramps up …
+ *     toEmit  = min(toEmit, state.idleAtHub())                           // … and only as far as idle-at-hub allows
  * </pre>
- * The reconciler never <em>recalls</em> — a lower desired count just means "emit nothing"; bringing the active count
- * back down is the deactivation side ({@code RemoteGuidanceShiftEndLogic}).
+ * The reconciler itself never recalls; a target below the active count simply yields {@code toEmit == 0}. Ramping down
+ * to {@code desired} is the deactivation side's job (subject to its own timeout / passenger-in-service constraints).
  *
  * @author nkuehnel / MOIA
  */
 public final class ActivationReconciler {
 
 	private final List<ActivationTrigger> triggers;
-	private final int nMin;
 
-	public ActivationReconciler(List<ActivationTrigger> triggers, int nMin) {
+	public ActivationReconciler(List<ActivationTrigger> triggers) {
 		this.triggers = List.copyOf(triggers);
-		this.nMin = nMin;
+	}
+
+	/**
+	 * The default remote guidance activation policy (RF1 / D17): the regulatory floor {@link MinFleetActivation} plus a
+	 * single {@link IdleBufferActivation} responsiveness buffer. This is the one place the default trigger set is
+	 * defined, so the scheduler (activation) and the shift-end logic (deactivation) build an identical reconciler and
+	 * thus share the same {@link #desired} target. The greedy baseline ({@link GreedyIdleActivation}) is deliberately
+	 * not included — it reproduces the low-demand sawtooth.
+	 */
+	public static ActivationReconciler createDefault(int minActiveFleet, int readyBufferSize) {
+		return new ActivationReconciler(
+				List.of(new MinFleetActivation(minActiveFleet), new IdleBufferActivation(readyBufferSize)));
+	}
+
+	/**
+	 * The shared fleet-sizing target: how many vehicles should be active given {@code state}, i.e. the {@code max} over
+	 * all triggers clamped to the hard ceiling {@code Σκ}. Always in {@code [0, activationCapacity]}. Both the
+	 * activation and the deactivation side read this same value.
+	 */
+	public int desired(GuidanceState state, double now) {
+		int desired = 0;
+		for (ActivationTrigger trigger : triggers) {
+			desired = Math.max(desired, trigger.desiredActive(state, now));
+		}
+		// cap at the hard ceiling last: the activation capacity Σκ is a physical limit and must win over any trigger.
+		return Math.min(Math.max(0, desired), state.activationCapacity());
 	}
 
 	/**
@@ -43,14 +76,7 @@ public final class ActivationReconciler {
 	 * and never more than the free activation capacity nor the number of idle-at-hub vehicles.
 	 */
 	public int toEmit(GuidanceState state, double now) {
-		int desired = nMin;
-		for (ActivationTrigger trigger : triggers) {
-			desired = Math.max(desired, trigger.desiredActive(state, now));
-		}
-		// desired is already >= nMin (floor) from the seed above; cap it at the hard ceiling last, so the activation
-		// capacity Σκ (a physical limit) always wins over the floor when the two conflict.
-		desired = Math.min(desired, state.activationCapacity());
-		int toEmit = Math.max(0, desired - state.activeCount());
+		int toEmit = Math.max(0, desired(state, now) - state.activeCount());
 		return Math.min(toEmit, state.idleAtHub());
 	}
 }

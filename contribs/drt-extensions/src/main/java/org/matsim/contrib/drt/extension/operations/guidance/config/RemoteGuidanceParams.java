@@ -60,6 +60,13 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 	private int minActiveFleet = 0;
 
 	@Parameter
+	@Comment("Responsiveness buffer: the number of vehicles kept idle-in-service (ready to absorb an incoming request "
+			+ "without a hub activation delay) during a demand lull. The activation side pulls the active fleet up until "
+			+ "this many are idle in service; the idle-timeout deactivation side spares exactly this many, so the two "
+			+ "sides share one buffer target and no churn arises at the band. Defaults to 1.")
+	private int readyBufferSize = 1;
+
+	@Parameter
 	@Comment("Proactive recall lead time in [seconds]: vehicles are recalled to a hub already when supervision capacity "
 			+ "will drop within this look-ahead window (e.g. an operator shift ending soon), so they arrive at the hub "
 			+ "in time instead of being caught on the road when capacity actually falls. Defaults to 900.")
@@ -128,11 +135,20 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		this.minActiveFleet = minActiveFleet;
 	}
 
+	public int getReadyBufferSize() {
+		return readyBufferSize;
+	}
+
+	public void setReadyBufferSize(int readyBufferSize) {
+		this.readyBufferSize = readyBufferSize;
+	}
+
 	@Override
 	protected void checkConsistency(Config config) {
 		super.checkConsistency(config);
 		Verify.verify(defaultOperatorCapacity > 0, "defaultOperatorCapacity must be a positive integer.");
 		Verify.verify(minRemainingShiftTimeForActivation >= 0, "minRemainingShiftTimeForActivation must not be negative.");
 		Verify.verify(minActiveFleet >= 0, "minActiveFleet must not be negative.");
+		Verify.verify(readyBufferSize >= 0, "readyBufferSize must not be negative.");
 	}
 }
