@@ -8,6 +8,12 @@
  */
 package org.matsim.contrib.drt.extension.operations.guidance.analysis;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.geotools.api.feature.simple.SimpleFeature;
+import org.geotools.feature.NameImpl;
+import org.geotools.feature.simple.SimpleFeatureBuilder;
+import org.geotools.feature.simple.SimpleFeatureTypeBuilder;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtils;
 import org.jfree.chart.JFreeChart;
@@ -15,6 +21,12 @@ import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.chart.plot.XYPlot;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
+import org.locationtech.jts.geom.Point;
+import org.matsim.api.core.v01.Id;
+import org.matsim.api.core.v01.network.Link;
+import org.matsim.api.core.v01.network.Network;
+import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector;
+import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector.EventSequence;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.ActivationChange;
 import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.IncidentRecord;
@@ -24,7 +36,11 @@ import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeacti
 import org.matsim.contrib.drt.run.DrtConfigGroup;
 import org.matsim.core.controler.MatsimServices;
 import org.matsim.core.controler.events.IterationEndsEvent;
+import org.matsim.core.controler.events.ShutdownEvent;
 import org.matsim.core.controler.listener.IterationEndsListener;
+import org.matsim.core.controler.listener.ShutdownListener;
+import org.matsim.core.utils.geometry.geotools.MGC;
+import org.matsim.core.utils.gis.GeoFileWriter;
 import org.matsim.core.utils.io.IOUtils;
 
 import java.awt.BasicStroke;
@@ -35,8 +51,11 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.stream.Collectors;
@@ -60,36 +79,56 @@ import java.util.stream.Collectors;
  *         against the activation ceiling {@link RemoteGuidanceOperators#activationCapacityAt(double)}.</li>
  *     <li><b>B5</b> {@code _deactivationReasons} (CSV, per iteration) — the deactivation-reason breakdown plus the
  *         activation-churn totals.</li>
+ *     <li><b>B6</b> {@code .gpkg} layer {@code incident_hotspots} (at shutdown) — per-link incident count + mean queue
+ *         delay + mean hold duration, as point features at the link's to-node, in a mode-specific GeoPackage that later
+ *         RG spatial layers can be added to.</li>
+ *     <li><b>B7</b> {@code _production} (CSV, per iteration + cross-iteration append) — the labour-economics production
+ *         tuple per run: L_T (actual operator-hours), Y (passenger-km served), and the service-quality metrics (served
+ *         requests, mean wait, rejections, rejection rate). Joins the operator-hours (this analyzer) with the
+ *         core-DRT request outcomes ({@link DrtEventSequenceCollector}); one cross-iteration row is one datapoint on the
+ *         empirical production isoquant.</li>
  * </ul>
- * The cross-iteration {@code _incidentStats} summary row lets a run be tracked over its iterations without post-
- * processing per-iteration files.
+ * The cross-iteration {@code _incidentStats}, {@code _operatorHours} and {@code _production} summary rows let a run be
+ * tracked over its iterations without post-processing per-iteration files.
  * <p>
- * <b>Not covered here</b> (deferred — the events do not yet carry the needed causal link / position): per-trip
- * delay-budget decomposition, incident blast radius, coverage maps, and causal rejection attribution.
+ * <b>Not covered</b> (deferred — the events do not yet carry the needed causal link / position): per-trip delay-budget
+ * decomposition, incident blast radius, coverage maps of vehicles, and causal rejection attribution.
  *
  * @author nkuehnel / MOIA
  */
-public final class RemoteGuidanceAnalysisControlerListener implements IterationEndsListener {
+public final class RemoteGuidanceAnalysisControlerListener implements IterationEndsListener, ShutdownListener {
+
+	private static final Logger log = LogManager.getLogger(RemoteGuidanceAnalysisControlerListener.class);
 
 	private final DrtConfigGroup drtConfigGroup;
 	private final RemoteGuidanceAnalysisTracker tracker;
 	private final RemoteGuidanceOperators operators;
+	private final DrtEventSequenceCollector requestCollector;
+	private final Network network;
 	private final MatsimServices matsimServices;
 
 	private final String delimiter;
 	private final String runId;
 	private boolean incidentStatsHeaderWritten = false;
 	private boolean operatorHoursHeaderWritten = false;
+	private boolean productionHeaderWritten = false;
+
+	// last iteration's incident records, retained for the shutdown-time GeoPackage (B6).
+	private List<IncidentRecord> lastIterationIncidents = List.of();
 
 	private static final String NA = "NA";
 	private static final String COMBINED = "all";
 
 	public RemoteGuidanceAnalysisControlerListener(DrtConfigGroup drtConfigGroup,
 												   RemoteGuidanceAnalysisTracker tracker,
-												   RemoteGuidanceOperators operators, MatsimServices matsimServices) {
+												   RemoteGuidanceOperators operators,
+												   DrtEventSequenceCollector requestCollector, Network network,
+												   MatsimServices matsimServices) {
 		this.drtConfigGroup = drtConfigGroup;
 		this.tracker = tracker;
 		this.operators = operators;
+		this.requestCollector = requestCollector;
+		this.network = network;
 		this.matsimServices = matsimServices;
 		this.delimiter = matsimServices.getConfig().global().getDefaultDelimiter();
 		this.runId = Optional.ofNullable(matsimServices.getConfig().controller().getRunId()).orElse(NA);
@@ -101,6 +140,8 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		boolean createGraphs = createGraphsInterval > 0 && event.getIteration() % createGraphsInterval == 0;
 
 		List<IncidentRecord> incidents = tracker.getCompletedIncidents();
+		// snapshot for the shutdown-time GeoPackage (B6): the tracker is reset before the next iteration, so we copy.
+		lastIterationIncidents = new ArrayList<>(incidents);
 
 		writeIncidentLog(incidents, filename(event, "incidents", ".csv"));                       // B1
 		writeIncidentStats(incidents, event.getIteration(), filename(event, "incidentStats", ".csv")); // B2
@@ -111,7 +152,9 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 				createGraphs ? filename(event, "activeVehicles", ".png") : null);                // B4
 		writeDeactivationReasons(filename(event, "deactivationReasons", ".csv"));                // B5
 		writeOperatorHours(tracker.getOperatorRecords(), event.getIteration(),
-				filename(event, "operatorHours", ".csv"));                                       // B3b/B7
+				filename(event, "operatorHours", ".csv"));                                       // B3b
+		writeProduction(tracker.getOperatorRecords(), event.getIteration(),
+				filename(event, "production", ".csv"));                                          // B7
 	}
 
 	// ---------------------------------------------------------------------------------------- B1: incident log
@@ -338,6 +381,131 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
+	}
+
+	// ---------------------------------------------------------------------------------------- B7: production tuple
+
+	/**
+	 * The labour-economics production tuple for this iteration: L_T (actual operator-hours), Y (passenger-km served,
+	 * summed unshared ride distances of performed requests), and service quality (served requests, mean wait,
+	 * rejections, rejection rate). One cross-iteration row = one datapoint on the empirical production isoquant. Wait and
+	 * rejection are read from the shared core-DRT {@link DrtEventSequenceCollector} (no recomputation).
+	 */
+	private void writeProduction(List<OperatorRecord> operatorRecords, int iteration, String perIterationCsv) {
+		double operatorHours = operatorRecords.stream()
+				.mapToDouble(r -> (r.actualEndTime() - r.startTime()) / 3600.0)
+				.sum();
+
+		double passengerKm = 0;
+		double sumWait = 0;
+		int served = 0;
+		for (EventSequence seq : requestCollector.getPerformedRequestSequences().values()) {
+			for (EventSequence.PersonEvents pe : seq.getPersonEvents().values()) {
+				if (pe.getPickedUp().isPresent()) {
+					served++;
+					passengerKm += seq.getSubmitted().getUnsharedRideDistance() / 1000.0;
+					sumWait += pe.getPickedUp().get().getTime() - seq.getSubmitted().getTime();
+				}
+			}
+		}
+		double meanWait = served == 0 ? Double.NaN : sumWait / served;
+		int rejections = requestCollector.getRejectedRequestSequences().size();
+		double rejectionRate = (served + rejections) == 0 ? Double.NaN : (double) rejections / (served + rejections);
+
+		try (BufferedWriter bw = IOUtils.getBufferedWriter(perIterationCsv)) {
+			bw.append(line("metric", "value"));
+			bw.append(line("operatorHours_LT", operatorHours));
+			bw.append(line("passengerKm_Y", passengerKm));
+			bw.append(line("servedRequests", served));
+			bw.append(line("meanWaitTime", meanWait));
+			bw.append(line("rejections", rejections));
+			bw.append(line("rejectionRate", rejectionRate));
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+
+		try (BufferedWriter bw = getAppendingBufferedWriter("production", ".csv")) {
+			if (!productionHeaderWritten) {
+				productionHeaderWritten = true;
+				bw.write(line("runId", "iteration", "operatorHours_LT", "passengerKm_Y", "servedRequests",
+						"meanWaitTime", "rejections", "rejectionRate"));
+			}
+			bw.write(line(runId, iteration, operatorHours, passengerKm, served, meanWait, rejections, rejectionRate));
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	// ---------------------------------------------------------------------------------------- B6: incident hotspot map
+
+	/**
+	 * Writes the last iteration's incident hotspots as point features (one per link that saw at least one incident, at
+	 * the link's to-node) into the {@code incident_hotspots} layer of a mode-specific GeoPackage. Written at shutdown so
+	 * only the final iteration's spatial pattern is persisted, mirroring {@code DrtZonalWaitTimesAnalyzer}. The
+	 * GeoPackage is RG-owned so later spatial RG layers can be added alongside without touching another module's output.
+	 */
+	@Override
+	public void notifyShutdown(ShutdownEvent event) {
+		String crs = matsimServices.getConfig().global().getCoordinateSystem();
+		Collection<SimpleFeature> features = incidentHotspotFeatures(lastIterationIncidents, network, crs);
+		if (!features.isEmpty()) {
+			String fileName = matsimServices.getControllerIO()
+					.getOutputFilename("drt_remoteGuidance_" + drtConfigGroup.getMode() + ".gpkg");
+			GeoFileWriter.writeGeometries(features, fileName, new NameImpl("incident_hotspots"));
+		}
+	}
+
+	/**
+	 * Builds the incident-hotspot point features: one per link with ≥1 incident, placed at the link's to-node, carrying
+	 * incident count and mean queue delay / hold duration. Static and side-effect-free so it is unit-testable without the
+	 * controller machinery. Returns empty if there are no incidents or the CRS is unknown.
+	 */
+	static Collection<SimpleFeature> incidentHotspotFeatures(List<IncidentRecord> incidents, Network network,
+															 String crs) {
+		// aggregate the last iteration's incidents per link.
+		record Agg(int count, double sumQueueDelay, double sumDuration) {}
+		Map<Id<Link>, Agg> byLink = new LinkedHashMap<>();
+		for (IncidentRecord i : incidents) {
+			byLink.merge(i.linkId(), new Agg(1, i.queueDelay(), i.actualDuration()),
+					(a, b) -> new Agg(a.count() + b.count(), a.sumQueueDelay() + b.sumQueueDelay(),
+							a.sumDuration() + b.sumDuration()));
+		}
+		if (byLink.isEmpty()) {
+			return List.of();
+		}
+
+		SimpleFeatureTypeBuilder typeBuilder = new SimpleFeatureTypeBuilder();
+		try {
+			typeBuilder.setCRS(MGC.getCRS(crs));
+		} catch (IllegalArgumentException e) {
+			log.warn("Coordinate reference system \"{}\" is unknown; set a crs in config global. "
+					+ "Will not create the remote guidance incident hotspot GeoPackage.", crs);
+			return List.of();
+		}
+		typeBuilder.setName("rgIncidentHotspot");
+		// note: GeoPackage/shp column names are truncated at 10 chars, keep them short.
+		typeBuilder.add("the_geom", Point.class);
+		typeBuilder.add("link", String.class);
+		typeBuilder.add("count", Integer.class);
+		typeBuilder.add("meanQueue", Double.class);
+		typeBuilder.add("meanDur", Double.class);
+		SimpleFeatureBuilder builder = new SimpleFeatureBuilder(typeBuilder.buildFeatureType());
+
+		Collection<SimpleFeature> features = new ArrayList<>();
+		for (Map.Entry<Id<Link>, Agg> entry : byLink.entrySet()) {
+			Link link = network.getLinks().get(entry.getKey());
+			if (link == null) {
+				continue; // link not in this mode's (sub)network — skip rather than guess a location
+			}
+			Agg agg = entry.getValue();
+			Point point = MGC.coord2Point(link.getToNode().getCoord());
+			Object[] attrs = new Object[] {
+					point, entry.getKey().toString(), agg.count(),
+					agg.sumQueueDelay() / agg.count(), agg.sumDuration() / agg.count()
+			};
+			features.add(builder.buildFeature(entry.getKey().toString(), attrs));
+		}
+		return features;
 	}
 
 	// ---------------------------------------------------------------------------------------- helpers

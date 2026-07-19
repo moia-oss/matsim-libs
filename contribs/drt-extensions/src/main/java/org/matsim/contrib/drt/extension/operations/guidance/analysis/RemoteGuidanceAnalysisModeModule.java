@@ -8,6 +8,8 @@
  */
 package org.matsim.contrib.drt.extension.operations.guidance.analysis;
 
+import org.matsim.api.core.v01.network.Network;
+import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
@@ -50,6 +52,8 @@ public class RemoteGuidanceAnalysisModeModule extends AbstractDvrpModeModule {
 				new RemoteGuidanceAnalysisControlerListener(drtConfigGroup,
 						getter.getModal(RemoteGuidanceAnalysisTracker.class),
 						getter.getModal(RemoteGuidanceOperators.class),
+						getter.getModal(DrtEventSequenceCollector.class),
+						getter.getModal(Network.class),
 						getter.get(MatsimServices.class))));
 		addControllerListenerBinding().to(modalKey(RemoteGuidanceAnalysisControlerListener.class));
 	}
