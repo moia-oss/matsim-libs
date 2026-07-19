@@ -17,6 +17,8 @@ import org.matsim.contrib.drt.extension.operations.guidance.activation.Activatio
 import org.matsim.contrib.drt.extension.operations.guidance.activation.GuidanceState;
 import org.matsim.contrib.drt.extension.operations.guidance.activation.IdleBufferActivation;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
+import org.matsim.contrib.drt.extension.operations.guidance.events.RemoteGuidanceOperatorEndedEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.RemoteGuidanceOperatorStartedEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleActivatedForRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent.DeactivationReason;
@@ -87,6 +89,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	private final ShiftScheduler delegate;
 	private final RemoteGuidanceOperators operators;
+	private final RemoteGuidanceOperatorState operatorState;
 	private final RemoteGuidanceParams params;
 	private final EventsManager eventsManager;
 	private final String mode;
@@ -113,11 +116,12 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	private double virtualShiftEndTime = Double.NaN;
 
 	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceOperators operators,
-								   RemoteGuidanceParams params, EventsManager eventsManager, String mode,
-								   double changeoverDuration, ActivationReconciler activationReconciler,
-								   RejectionRateTracker rejectionRateTracker) {
+								   RemoteGuidanceOperatorState operatorState, RemoteGuidanceParams params,
+								   EventsManager eventsManager, String mode, double changeoverDuration,
+								   ActivationReconciler activationReconciler, RejectionRateTracker rejectionRateTracker) {
 		this.delegate = delegate;
 		this.operators = operators;
+		this.operatorState = operatorState;
 		this.params = params;
 		this.eventsManager = eventsManager;
 		this.mode = mode;
@@ -138,6 +142,10 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// (re)init runtime state for this iteration
 		liveVirtualShifts = new HashMap<>();
 		virtualShiftCounter = 0;
+		// clear the operators' per-iteration runtime lifecycle (released / incident-busy / effective end): the state
+		// object is a single cross-iteration instance, so without this reset a previous iteration's releases would
+		// persist and starve coverage. The immutable spec registry needs no reset.
+		operatorState.reset();
 
 		// operator shifts define capacity only (via the registry) and are NOT handed to the dispatcher for assignment
 		ImmutableMap.Builder<Id<DrtShift>, DrtShift> driverShifts = ImmutableMap.builder();
@@ -164,6 +172,12 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 		List<DrtShift> emitted = new ArrayList<>(delegate.schedule(now, fleet));
 
+		// operator lifecycle: fire a started event for every operator whose planned start has been reached (today the
+		// actual start == planned start; the emission point exists for a future delayed start). Idempotent per operator.
+		for (RemoteGuidanceOperators.Operator started : operatorState.markStarted(now)) {
+			eventsManager.processEvent(new RemoteGuidanceOperatorStartedEvent(now, mode, started.id()));
+		}
+
 		// single fleet scan: reconciles which virtual shifts are live (firing activation/deactivation events) AND
 		// collects the two D19 idle counts the activation triggers need — folded together to avoid a second pass over
 		// the whole fleet each step (matters at large fleet sizes).
@@ -172,8 +186,12 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// D22: release operators that have passed their planned end, but only as far as the (now reconciled) active
 		// supervised fleet allows without breaking coverage — a retained operator keeps supervising its vehicles and
 		// finishing any pending incident until its vehicles have gone home. Runs before emission so the freshly-released
-		// operators no longer count toward the activation ceiling below.
-		operators.releaseElapsedOperators(now, liveVirtualShifts.size());
+		// operators no longer count toward the activation ceiling below. Each release fires an ended event carrying the
+		// planned end, so the retention (effective − planned) is observable.
+		for (RemoteGuidanceOperators.Operator released : operatorState.releaseElapsedOperators(now, liveVirtualShifts.size())) {
+			eventsManager.processEvent(new RemoteGuidanceOperatorEndedEvent(now, mode, released.id(),
+					released.plannedEndTime()));
+		}
 
 		// activation (RF1 / D17): pluggable triggers decide how many vehicles should be active; the reconciler combines
 		// them and clamps to the hard floor + the activation ceiling Σκ. The ceiling uses the PLANNED-window capacity
@@ -273,7 +291,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// deactivated: tracked before but no longer live (virtual shift ended)
 		Set<Id<DrtShift>> ended = new HashSet<>(liveVirtualShifts.keySet());
 		ended.removeAll(currentlyLive.keySet());
-		int capacity = operators.capacityAt(now);
+		int capacity = operatorState.coverageCapacityAt(now);
 		int stillLive = currentlyLive.size();
 		for (Id<DrtShift> endedShiftId : ended) {
 			Id<DvrpVehicle> vehicleId = liveVirtualShifts.get(endedShiftId);
@@ -357,12 +375,13 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	 *                             present (then no {@code RejectionRateActivation} is wired).
 	 */
 	public static RemoteGuidanceScheduler create(DrtShiftsSpecification specification, RemoteGuidanceOperators operators,
-												 RemoteGuidanceParams params, EventsManager eventsManager, String mode,
-												 double changeoverDuration, RejectionRateTracker rejectionRateTracker) {
+												 RemoteGuidanceOperatorState operatorState, RemoteGuidanceParams params,
+												 EventsManager eventsManager, String mode, double changeoverDuration,
+												 RejectionRateTracker rejectionRateTracker) {
 		ActivationReconciler reconciler = ActivationReconciler.createDefault(params.getMinActiveFleet(),
 				params.getReadyBufferSize(), rejectionThreshold(params));
-		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, params, eventsManager,
-				mode, changeoverDuration, reconciler, rejectionRateTracker);
+		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, operatorState, params,
+				eventsManager, mode, changeoverDuration, reconciler, rejectionRateTracker);
 	}
 
 	/**

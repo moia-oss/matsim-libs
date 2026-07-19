@@ -18,6 +18,8 @@ import org.jfree.data.xy.XYSeriesCollection;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.ActivationChange;
 import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.IncidentRecord;
+import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.OperatorChange;
+import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.OperatorRecord;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent.DeactivationReason;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
 import org.matsim.core.controler.MatsimServices;
@@ -49,8 +51,11 @@ import java.util.stream.Collectors;
  *         and durations; also appended one row per iteration to the cross-iteration {@code _incidentStats} output
  *         file.</li>
  *     <li><b>B3</b> {@code _operatorUtilisation} (CSV + PNG, per iteration) — the concurrent-busy-operator step function
- *         against the operator pool (the incident server pool is one operator per incident regardless of κ, D14, so the
- *         denominator is the schedule-based {@link RemoteGuidanceOperators#plannedOnDutyCount(double)}).</li>
+ *         against the operator pool. The denominator is the REAL on-duty operator count reconstructed from the operator
+ *         started/ended events (one operator per incident regardless of κ, D14); the schedule-based
+ *         {@link RemoteGuidanceOperators#plannedOnDutyCount(double)} is kept as a planned comparison line.</li>
+ *     <li><b>B3b/B7</b> {@code _operatorHours} (CSV, per iteration + cross-iteration append) — planned vs. actual
+ *         operator-hours (the gap = D22 retention overhead), feeding the labour term L_T.</li>
  *     <li><b>B4</b> {@code _activeVehicles} (CSV + PNG, per iteration) — the supervised-active count step function
  *         against the activation ceiling {@link RemoteGuidanceOperators#activationCapacityAt(double)}.</li>
  *     <li><b>B5</b> {@code _deactivationReasons} (CSV, per iteration) — the deactivation-reason breakdown plus the
@@ -74,6 +79,7 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 	private final String delimiter;
 	private final String runId;
 	private boolean incidentStatsHeaderWritten = false;
+	private boolean operatorHoursHeaderWritten = false;
 
 	private static final String NA = "NA";
 	private static final String COMBINED = "all";
@@ -98,11 +104,14 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 
 		writeIncidentLog(incidents, filename(event, "incidents", ".csv"));                       // B1
 		writeIncidentStats(incidents, event.getIteration(), filename(event, "incidentStats", ".csv")); // B2
-		writeOperatorUtilisation(incidents, filename(event, "operatorUtilisation", ".csv"),
+		writeOperatorUtilisation(incidents, tracker.getOperatorChanges(),
+				filename(event, "operatorUtilisation", ".csv"),
 				createGraphs ? filename(event, "operatorUtilisation", ".png") : null);           // B3
 		writeActiveVehicles(tracker.getActivationChanges(), filename(event, "activeVehicles", ".csv"),
 				createGraphs ? filename(event, "activeVehicles", ".png") : null);                // B4
 		writeDeactivationReasons(filename(event, "deactivationReasons", ".csv"));                // B5
+		writeOperatorHours(tracker.getOperatorRecords(), event.getIteration(),
+				filename(event, "operatorHours", ".csv"));                                       // B3b/B7
 	}
 
 	// ---------------------------------------------------------------------------------------- B1: incident log
@@ -195,40 +204,57 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 
 	// ---------------------------------------------------------------------------------------- B3: operator utilisation
 
-	private void writeOperatorUtilisation(List<IncidentRecord> incidents, String csvFile, String pngFile) {
-		// build the concurrent-busy step function from operator-busy intervals [assignTime, resolveTime].
-		List<double[]> changes = new ArrayList<>(); // {time, delta}
+	private void writeOperatorUtilisation(List<IncidentRecord> incidents, List<OperatorChange> operatorChanges,
+										  String csvFile, String pngFile) {
+		// the concurrent-busy step function from operator-busy intervals [assignTime, resolveTime].
+		List<double[]> busyChanges = new ArrayList<>(); // {time, delta}
 		for (IncidentRecord i : incidents) {
 			if (!Double.isNaN(i.assignTime())) {
-				changes.add(new double[] {i.assignTime(), +1});
-				changes.add(new double[] {i.resolveTime(), -1});
+				busyChanges.add(new double[] {i.assignTime(), +1});
+				busyChanges.add(new double[] {i.resolveTime(), -1});
 			}
 		}
-		changes.sort(Comparator.comparingDouble((double[] c) -> c[0]).thenComparingDouble(c -> c[1]));
+		// the REAL on-duty step function from operator started/ended events; merge both change streams onto one timeline.
+		for (OperatorChange c : operatorChanges) {
+			busyChanges.add(new double[] {c.time(), 0}); // sentinel so the on-duty count is sampled at operator changes too
+		}
+		busyChanges.sort(Comparator.comparingDouble((double[] c) -> c[0]).thenComparingDouble(c -> c[1]));
+
+		// pre-index operator changes by time to reconstruct the real on-duty count as a running total.
+		List<OperatorChange> sortedOperatorChanges = new ArrayList<>(operatorChanges);
+		sortedOperatorChanges.sort(Comparator.comparingDouble(OperatorChange::time).thenComparingInt(OperatorChange::delta));
 
 		XYSeries busySeries = new XYSeries("busy operators", false, true);
 		XYSeries onDutySeries = new XYSeries("on-duty operators", false, true);
+		XYSeries plannedSeries = new XYSeries("planned on-duty operators", false, true);
 
 		try (BufferedWriter bw = IOUtils.getBufferedWriter(csvFile)) {
-			bw.append(line("time", "busyOperators", "onDutyOperators", "utilisation"));
+			bw.append(line("time", "busyOperators", "onDutyOperators", "plannedOnDutyOperators", "utilisation"));
 			int busy = 0;
-			for (double[] c : changes) {
-				busy += (int) c[1];
+			int onDuty = 0;
+			int opIdx = 0;
+			for (double[] c : busyChanges) {
 				double time = c[0];
-				// schedule-based (planned-window) count, NOT the runtime onDutyCount: the latter reads the mutable
-				// released flag which reflects end-of-iteration state, so querying it for a historical time is wrong.
-				int onDuty = operators.plannedOnDutyCount(time);
+				// advance the real on-duty running total to include all operator changes at or before this time.
+				while (opIdx < sortedOperatorChanges.size() && sortedOperatorChanges.get(opIdx).time() <= time) {
+					onDuty += sortedOperatorChanges.get(opIdx).delta();
+					opIdx++;
+				}
+				busy += (int) c[1];
+				int planned = operators.plannedOnDutyCount(time); // schedule-based comparison line
 				double utilisation = onDuty == 0 ? Double.NaN : (double) busy / onDuty;
-				bw.append(line(time, busy, onDuty, utilisation));
+				bw.append(line(time, busy, onDuty, planned, utilisation));
 				busySeries.add(time / 3600.0, busy);
 				onDutySeries.add(time / 3600.0, onDuty);
+				plannedSeries.add(time / 3600.0, planned);
 			}
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
 
 		if (pngFile != null) {
-			writeStepChart(pngFile, "Remote guidance operator utilisation", "# operators", busySeries, onDutySeries);
+			writeStepChart(pngFile, "Remote guidance operator utilisation", "# operators", busySeries, onDutySeries,
+					plannedSeries);
 		}
 	}
 
@@ -275,6 +301,40 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 			// activation-churn totals: each activation-deactivation pair is one supervision cycle.
 			bw.append(line("totalActivations", tracker.getActivationCount(), NA));
 			bw.append(line("totalDeactivations", totalDeactivations, NA));
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	// ---------------------------------------------------------------------------------------- B3b/B7: operator hours
+
+	private void writeOperatorHours(List<OperatorRecord> records, int iteration, String perIterationCsv) {
+		double plannedHours = 0;
+		double actualHours = 0;
+		try (BufferedWriter bw = IOUtils.getBufferedWriter(perIterationCsv)) {
+			bw.append(line("operatorId", "startTime", "plannedEndTime", "actualEndTime", "plannedHours", "actualHours",
+					"retentionSeconds"));
+			for (OperatorRecord r : records) {
+				double planned = (r.plannedEndTime() - r.startTime()) / 3600.0;
+				double actual = (r.actualEndTime() - r.startTime()) / 3600.0;
+				double retention = r.actualEndTime() - r.plannedEndTime();
+				plannedHours += planned;
+				actualHours += actual;
+				bw.append(line(r.operatorId(), r.startTime(), r.plannedEndTime(), r.actualEndTime(), planned, actual,
+						retention));
+			}
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+
+		// cross-iteration append: one summary row per iteration (the L_T real-vs-planned datapoint).
+		try (BufferedWriter bw = getAppendingBufferedWriter("operatorHours", ".csv")) {
+			if (!operatorHoursHeaderWritten) {
+				operatorHoursHeaderWritten = true;
+				bw.write(line("runId", "iteration", "endedOperators", "plannedHours", "actualHours",
+						"retentionHours"));
+			}
+			bw.write(line(runId, iteration, records.size(), plannedHours, actualHours, actualHours - plannedHours));
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}

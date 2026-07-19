@@ -14,6 +14,8 @@ import org.matsim.api.core.v01.network.Link;
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentAssignedToOperatorEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentResolvedEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentStartedEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.RemoteGuidanceOperatorEndedEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.RemoteGuidanceOperatorStartedEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleActivatedForRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent.DeactivationReason;
@@ -42,6 +44,11 @@ import java.util.Map;
  *         active-vehicle time series (B4).</li>
  *     <li><b>deactivation-reason counts</b> — tallied per {@link DeactivationReason}, behind the deactivation breakdown
  *         (B5).</li>
+ *     <li><b>operator lifecycle</b> — a chronological {@code +1 / -1} step sequence from
+ *         {@link RemoteGuidanceOperatorStartedEvent} / {@link RemoteGuidanceOperatorEndedEvent}, giving the REAL on-duty
+ *         operator count over time (the B3 utilisation denominator, event-driven rather than a retroactive registry
+ *         query), plus one {@link OperatorRecord} per ended operator carrying planned vs. actual end for the
+ *         operator-hours real-vs-planned stream (B3/B7).</li>
  * </ul>
  * Everything here is derivable from RG events alone (no join with core-DRT output, no registry access), so it carries no
  * dependency risk; the registry-derived capacities used for the utilisation ratios are queried in the listener, not here.
@@ -61,6 +68,11 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 	private Map<DeactivationReason, Integer> deactivationReasonCounts = new EnumMap<>(DeactivationReason.class);
 	private int activationCount = 0;
 
+	// chronological operator-lifecycle step sequence (+1 started, -1 ended) + one record per ended operator.
+	private List<OperatorChange> operatorChanges = new ArrayList<>();
+	private List<OperatorRecord> operatorRecords = new ArrayList<>();
+	private Map<Id<DrtShift>, Double> operatorStartTimes = new HashMap<>();
+
 	public RemoteGuidanceAnalysisTracker(String mode) {
 		this.mode = mode;
 	}
@@ -73,6 +85,14 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 
 	/** One extensive-margin change: {@code delta} is +1 for an activation, -1 for a deactivation. */
 	public record ActivationChange(double time, int delta) {
+	}
+
+	/** One operator-lifecycle change: {@code delta} is +1 for a start, -1 for an end. */
+	public record OperatorChange(double time, int delta) {
+	}
+
+	/** A completed operator duty period: actual end may exceed {@code plannedEndTime} by the D22 retention overhead. */
+	public record OperatorRecord(Id<DrtShift> operatorId, double startTime, double plannedEndTime, double actualEndTime) {
 	}
 
 	// mutable, in-flight incident state between started and resolved.
@@ -127,6 +147,18 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 				activationChanges.add(new ActivationChange(deactivated.getTime(), -1));
 				deactivationReasonCounts.merge(deactivated.getReason(), 1, Integer::sum);
 			}
+		} else if (event instanceof RemoteGuidanceOperatorStartedEvent started) {
+			if (started.getMode().equals(mode)) {
+				operatorChanges.add(new OperatorChange(started.getTime(), +1));
+				operatorStartTimes.put(started.getOperatorId(), started.getTime());
+			}
+		} else if (event instanceof RemoteGuidanceOperatorEndedEvent ended) {
+			if (ended.getMode().equals(mode)) {
+				operatorChanges.add(new OperatorChange(ended.getTime(), -1));
+				double startTime = operatorStartTimes.getOrDefault(ended.getOperatorId(), Double.NaN);
+				operatorRecords.add(new OperatorRecord(ended.getOperatorId(), startTime, ended.getPlannedEndTime(),
+						ended.getTime()));
+			}
 		}
 	}
 
@@ -146,6 +178,14 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 		return activationCount;
 	}
 
+	public List<OperatorChange> getOperatorChanges() {
+		return operatorChanges;
+	}
+
+	public List<OperatorRecord> getOperatorRecords() {
+		return operatorRecords;
+	}
+
 	@Override
 	public void reset(int iteration) {
 		this.openIncidents = new HashMap<>();
@@ -153,5 +193,8 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 		this.activationChanges = new ArrayList<>();
 		this.deactivationReasonCounts = new EnumMap<>(DeactivationReason.class);
 		this.activationCount = 0;
+		this.operatorChanges = new ArrayList<>();
+		this.operatorRecords = new ArrayList<>();
+		this.operatorStartTimes = new HashMap<>();
 	}
 }

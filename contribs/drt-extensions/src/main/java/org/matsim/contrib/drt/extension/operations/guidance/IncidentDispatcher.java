@@ -101,6 +101,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 	private final String mode;
 	private final IncidentParams params;
 	private final RemoteGuidanceOperators operatorRegistry;
+	private final RemoteGuidanceOperatorState operatorState;
 
 	private final Fleet fleet;
 	private final EventsManager eventsManager;
@@ -127,12 +128,13 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 	private final Map<Id<Vehicle>, Id<DvrpVehicle>> fleetVehicleIds = new LinkedHashMap<>();
 
 	public IncidentDispatcher(String mode, IncidentParams params, RemoteGuidanceOperators operatorRegistry,
-							  Fleet fleet, EventsManager eventsManager,
+							  RemoteGuidanceOperatorState operatorState, Fleet fleet, EventsManager eventsManager,
 							  MobsimTimer timer, ScheduleTimingUpdater scheduleTimingUpdater, Network network,
 							  TravelTime travelTime) {
 		this.mode = mode;
 		this.params = params;
 		this.operatorRegistry = operatorRegistry;
+		this.operatorState = operatorState;
 		this.fleet = fleet;
 		this.eventsManager = eventsManager;
 		this.timer = timer;
@@ -194,7 +196,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 						incident.severity, actualDuration, queued, queueDelay));
 
 				operator.current = null;
-				operatorRegistry.setIncidentBusy(operator.id, false); // free to be released now (D22)
+				operatorState.setIncidentBusy(operator.id, false); // free to be released now (D22)
 				activeIncidents.remove(incident.vehicleId);
 			}
 		}
@@ -255,8 +257,8 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 			incident.serviceEndTime = now + incident.expectedDuration;
 			operator.current = incident;
 			operator.handledCount++;
-			// mark the operator busy in the registry: it must not be released mid-incident (D22, no handover)
-			operatorRegistry.setIncidentBusy(operator.id, true);
+			// mark the operator busy in the runtime state: it must not be released mid-incident (D22, no handover)
+			operatorState.setIncidentBusy(operator.id, true);
 
 			// the operator is now handling the incident: fix the hold's end to the (formerly open) service end and
 			// propagate the new timing to the trailing continuation drive + downstream tasks
@@ -271,7 +273,9 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 	private OperatorServer pickFreeOperator(double now) {
 		List<OperatorServer> free = new ArrayList<>();
 		for (OperatorServer operator : operators.values()) {
-			if (operator.isAvailable(now)) {
+			// available = free (no current incident) AND on duty for coverage in the runtime sense (a pending-release
+			// operator can still take an incident until it is actually released). Coverage state lives on operatorState.
+			if (operator.current == null && operatorState.onDutyForCoverage(operator.operator, now)) {
 				free.add(operator);
 			}
 		}
@@ -399,10 +403,6 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 		private OperatorServer(RemoteGuidanceOperators.Operator operator) {
 			this.operator = operator;
 			this.id = operator.id();
-		}
-
-		private boolean isAvailable(double now) {
-			return current == null && operator.onDutyForCoverage(now);
 		}
 	}
 

@@ -6,6 +6,7 @@ import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.operations.guidance.IncidentDispatcher;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
+import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperatorState;
 import org.matsim.contrib.drt.extension.operations.guidance.RejectionRateTracker;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceShiftEndLogic;
@@ -133,7 +134,8 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 				.ifPresent(incidentParams -> {
 					addModalComponent(IncidentDispatcher.class, modalProvider(getter -> new IncidentDispatcher(
 							getMode(), incidentParams, getter.getModal(RemoteGuidanceOperators.class),
-							getter.getModal(Fleet.class), getter.get(EventsManager.class), getter.get(MobsimTimer.class),
+							getter.getModal(RemoteGuidanceOperatorState.class), getter.getModal(Fleet.class),
+							getter.get(EventsManager.class), getter.get(MobsimTimer.class),
 							getter.getModal(ScheduleTimingUpdater.class), getter.getModal(Network.class),
 							getter.getModal(TravelTime.class))));
 					addMobsimScopeEventHandlerBinding().to(modalKey(IncidentDispatcher.class));

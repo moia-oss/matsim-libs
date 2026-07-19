@@ -10,6 +10,7 @@ import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.operations.guidance.RejectionRateTracker;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
+import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperatorState;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilitiesSpecification;
@@ -103,9 +104,16 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 			RemoteGuidanceParams remoteGuidanceParams = drtOperationsParams.getRemoteGuidanceParams().get();
 			// authoritative runtime registry of operators (Σκ(t)); shared by the scheduler (activation ceiling) and,
 			// in the QSim scope, the incident dispatcher + the RG ShiftEndLogic (deactivation triggers)
-			bindModal(RemoteGuidanceOperators.class).toInstance(RemoteGuidanceOperators.fromSpecification(
+			RemoteGuidanceOperators remoteGuidanceOperators = RemoteGuidanceOperators.fromSpecification(
 					drtShiftsSpecification, remoteGuidanceParams.getOperatorShiftType(),
-					remoteGuidanceParams.getDefaultOperatorCapacity()));
+					remoteGuidanceParams.getDefaultOperatorCapacity());
+			bindModal(RemoteGuidanceOperators.class).toInstance(remoteGuidanceOperators);
+			// per-run runtime lifecycle of the operators (released / incident-busy / effective end); split out of the
+			// immutable registry so nothing mutable lives on the cross-iteration spec. Re-initialised each iteration in
+			// RemoteGuidanceScheduler.initialSchedule(). A single instance shared by the scheduler (controller scope) and
+			// the QSim-scope IncidentDispatcher, so both see the same release state.
+			bindModal(RemoteGuidanceOperatorState.class).toInstance(
+					new RemoteGuidanceOperatorState(remoteGuidanceOperators));
 			// demand-pressure source for the RejectionRateActivation trigger (opt-in). A single controller-scoped
 			// instance is shared by the scheduler (activation) and the QSim-scope ShiftEndLogic (deactivation) so both
 			// margins read the same recentRejectionRate and the shared activation target stays consistent. When no
@@ -117,7 +125,8 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 			});
 			boolean hasRejectionActivation = remoteGuidanceParams.getRejectionActivationParams().isPresent();
 			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> RemoteGuidanceScheduler.create(
-					drtShiftsSpecification, getter.getModal(RemoteGuidanceOperators.class), remoteGuidanceParams,
+					drtShiftsSpecification, getter.getModal(RemoteGuidanceOperators.class),
+					getter.getModal(RemoteGuidanceOperatorState.class), remoteGuidanceParams,
 					getter.get(EventsManager.class), getMode(), shiftsParams.getChangeoverDuration(),
 					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null)));
 		} else {

@@ -17,6 +17,9 @@ import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuida
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentAssignedToOperatorEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentResolvedEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentStartedEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.OperatorRecord;
+import org.matsim.contrib.drt.extension.operations.guidance.events.RemoteGuidanceOperatorEndedEvent;
+import org.matsim.contrib.drt.extension.operations.guidance.events.RemoteGuidanceOperatorStartedEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleActivatedForRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeactivatedForRemoteGuidanceEvent.DeactivationReason;
@@ -132,6 +135,29 @@ public class RemoteGuidanceAnalysisTrackerTest {
 	}
 
 	@Test
+	void operatorLifecycleReconstruction() {
+		RemoteGuidanceAnalysisTracker tracker = new RemoteGuidanceAnalysisTracker(MODE);
+
+		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o1")));
+		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o2")));
+		// o1 ends on time; o2 is retained 120s past its planned end (D22 deferral).
+		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(3600, MODE, op("o1"), 3600));
+		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(3720, MODE, op("o2"), 3600));
+
+		assertThat(tracker.getOperatorChanges()).extracting(RemoteGuidanceAnalysisTracker.OperatorChange::delta)
+				.containsExactly(+1, +1, -1, -1);
+
+		assertThat(tracker.getOperatorRecords()).hasSize(2);
+		OperatorRecord o1 = tracker.getOperatorRecords().get(0);
+		assertThat(o1.operatorId()).isEqualTo(op("o1"));
+		assertThat(o1.startTime()).isEqualTo(0);
+		assertThat(o1.plannedEndTime()).isEqualTo(3600);
+		assertThat(o1.actualEndTime()).isEqualTo(3600); // no retention
+		OperatorRecord o2 = tracker.getOperatorRecords().get(1);
+		assertThat(o2.actualEndTime() - o2.plannedEndTime()).isEqualTo(120); // 120s retention
+	}
+
+	@Test
 	void otherModeIsIgnored() {
 		RemoteGuidanceAnalysisTracker tracker = new RemoteGuidanceAnalysisTracker(MODE);
 
@@ -139,9 +165,13 @@ public class RemoteGuidanceAnalysisTrackerTest {
 		tracker.handleEvent(new IncidentAssignedToOperatorEvent(100, "otherMode", veh("v1"), op("o1"), 1));
 		tracker.handleEvent(new IncidentResolvedEvent(200, "otherMode", veh("v1"), op("o1"), 1, 100, false, 0));
 		tracker.handleEvent(new VehicleActivatedForRemoteGuidanceEvent(100, "otherMode", veh("v1")));
+		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, "otherMode", op("o1")));
+		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(100, "otherMode", op("o1"), 100));
 
 		assertThat(tracker.getCompletedIncidents()).isEmpty();
 		assertThat(tracker.getActivationCount()).isZero();
+		assertThat(tracker.getOperatorChanges()).isEmpty();
+		assertThat(tracker.getOperatorRecords()).isEmpty();
 	}
 
 	@Test
@@ -151,6 +181,8 @@ public class RemoteGuidanceAnalysisTrackerTest {
 		tracker.handleEvent(new IncidentAssignedToOperatorEvent(100, MODE, veh("v1"), op("o1"), 1));
 		tracker.handleEvent(new IncidentResolvedEvent(200, MODE, veh("v1"), op("o1"), 1, 100, false, 0));
 		tracker.handleEvent(new VehicleActivatedForRemoteGuidanceEvent(100, MODE, veh("v1")));
+		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o1")));
+		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(100, MODE, op("o1"), 100));
 
 		tracker.reset(1);
 
@@ -158,5 +190,7 @@ public class RemoteGuidanceAnalysisTrackerTest {
 		assertThat(tracker.getActivationChanges()).isEmpty();
 		assertThat(tracker.getDeactivationReasonCounts()).isEmpty();
 		assertThat(tracker.getActivationCount()).isZero();
+		assertThat(tracker.getOperatorChanges()).isEmpty();
+		assertThat(tracker.getOperatorRecords()).isEmpty();
 	}
 }
