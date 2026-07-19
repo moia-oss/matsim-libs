@@ -41,6 +41,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.Set;
 
 /**
@@ -90,6 +92,9 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	private final String mode;
 	private final double changeoverDuration;
 	private final ActivationReconciler activationReconciler;
+	// nullable: the demand-pressure source for the RejectionRateActivation trigger; null when no rejection-activation
+	// config is present (then recentRejectionRate stays 0.0 and the trigger, if somehow present, never fires).
+	private final RejectionRateTracker rejectionRateTracker;
 
 	// runtime state, (re)initialized on each initialSchedule() (i.e. per iteration)
 	private Map<Id<DrtShift>, Id<DvrpVehicle>> liveVirtualShifts;
@@ -109,7 +114,8 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceOperators operators,
 								   RemoteGuidanceParams params, EventsManager eventsManager, String mode,
-								   double changeoverDuration, ActivationReconciler activationReconciler) {
+								   double changeoverDuration, ActivationReconciler activationReconciler,
+								   RejectionRateTracker rejectionRateTracker) {
 		this.delegate = delegate;
 		this.operators = operators;
 		this.params = params;
@@ -117,6 +123,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		this.mode = mode;
 		this.changeoverDuration = changeoverDuration;
 		this.activationReconciler = activationReconciler;
+		this.rejectionRateTracker = rejectionRateTracker;
 	}
 
 	@Override
@@ -171,9 +178,9 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// activation (RF1 / D17): pluggable triggers decide how many vehicles should be active; the reconciler combines
 		// them and clamps to the hard floor + the activation ceiling Σκ. The ceiling uses the PLANNED-window capacity
 		// (not coverage): a winding-down operator retained past its planned end must not pull new vehicles in.
-		// recentRejectionRate is not wired yet (seam for a future demand-driven trigger) → 0.0.
+		double rejectionRate = rejectionRateTracker == null ? 0.0 : rejectionRateTracker.rejectionRate(now);
 		GuidanceState state = new GuidanceState(liveVirtualShifts.size(), operators.activationCapacityAt(now),
-				idleCounts.idleAtHub(), idleCounts.idleInService(), 0.0);
+				idleCounts.idleAtHub(), idleCounts.idleInService(), rejectionRate);
 		int toEmit = activationReconciler.toEmit(state, now);
 		for (int i = 0; i < toEmit; i++) {
 			emitted.add(createVirtualShift(now));
@@ -224,6 +231,10 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 			if (!(vehicle instanceof ShiftDvrpVehicle shiftVehicle)) {
 				continue;
 			}
+			// every virtual shift in the queue counts as live for activeCount purposes: a shift emitted this iteration is
+			// assigned and started within the same dispatcher step (scheduleShifts→assignShifts→startShifts), so counting
+			// queue membership (not isStarted) keeps activeCount from briefly undercounting and re-emitting a duplicate.
+			// This full-queue scan was never exposed to the peek() head-vs-started hazard the idle/recall paths were.
 			for (DrtShift shift : shiftVehicle.getShifts()) {
 				if (isVirtualShift(shift)) {
 					currentlyLive.put(shift.getId(), vehicle.getId());
@@ -236,14 +247,17 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 			}
 			Task currentTask = schedule.getCurrentTask();
 			if (shiftVehicle.getShifts().isEmpty()) {
-				// out of service, waiting at a hub → activation source
+				// no shift assigned at all: out of service, waiting at a hub → activation source. (Any queued shift —
+				// started or not, virtual or a driver shift — means the vehicle is not a free activation source, so the
+				// empty-queue check is deliberately kept here rather than "no started virtual shift".)
 				if (currentTask instanceof WaitForShiftTask) {
 					idleAtHub++;
 				}
-			} else if (isVirtualShift(shiftVehicle.getShifts().peek())
+			} else if (startedVirtualShift(shiftVehicle).isPresent()
 					&& currentTask instanceof DrtStayTask
 					&& currentTask.equals(Schedules.getLastTask(schedule))) {
-				// active virtual vehicle truly idle in service (D19: stay task that is the last task) → ready buffer
+				// active virtual vehicle truly idle in service (D19: stay task that is the last task) → ready buffer.
+				// keyed on the STARTED virtual shift, not the queue head, which may be a not-yet-started future shift.
 				idleInService++;
 			}
 		}
@@ -305,8 +319,24 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		return shift.getShiftType().map(params.getOperatorShiftType()::equals).orElse(false);
 	}
 
-	private static boolean isVirtualShift(DrtShift shift) {
+	static boolean isVirtualShift(DrtShift shift) {
 		return shift.getShiftType().map(VIRTUAL_SHIFT_TYPE::equals).orElse(false);
+	}
+
+	/**
+	 * The vehicle's currently <em>running</em> virtual shift, if any. A {@link ShiftDvrpVehicle}'s shift queue is a
+	 * {@link java.util.PriorityQueue} ordered by start time and holds shifts from assignment (not from start), so its
+	 * head ({@code peek()}) may be a not-yet-started future shift while a different one is actually running. Idle/recall
+	 * decisions must key on the shift that has {@link DrtShift#isStarted() started} and not {@link DrtShift#isEnded()
+	 * ended}, never blindly on the queue head. At most one such shift exists (a vehicle runs one shift at a time).
+	 */
+	static Optional<DrtShift> startedVirtualShift(ShiftDvrpVehicle vehicle) {
+		for (DrtShift shift : vehicle.getShifts()) {
+			if (shift.isStarted() && !shift.isEnded() && isVirtualShift(shift)) {
+				return Optional.of(shift);
+			}
+		}
+		return Optional.empty();
 	}
 
 	@Override
@@ -317,17 +347,31 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	/**
 	 * Convenience factory wrapping a {@link DefaultShiftScheduler} over the given specification, with the default
 	 * activation policy from {@link ActivationReconciler#createDefault} (RF1 / D17): the regulatory {@code minActiveFleet}
-	 * floor plus an {@link IdleBufferActivation} responsiveness buffer. The deactivation side ({@link
-	 * RemoteGuidanceShiftEndLogic}) builds an identical reconciler from the same params, so both margins share one
-	 * fleet-sizing target. The greedy baseline ({@code GreedyIdleActivation}) is deliberately NOT in the default set —
-	 * it reproduces the low-demand sawtooth.
+	 * floor, an {@link IdleBufferActivation} responsiveness buffer, and — iff {@code rejectionActivation} is configured —
+	 * a demand-driven {@code RejectionRateActivation} fed by {@code rejectionRateTracker}. The deactivation side ({@link
+	 * RemoteGuidanceShiftEndLogic}) builds an identical reconciler from the same params and reads the SAME tracker, so
+	 * both margins share one fleet-sizing target. The greedy baseline ({@code GreedyIdleActivation}) is deliberately NOT
+	 * in the default set — it reproduces the low-demand sawtooth.
+	 *
+	 * @param rejectionRateTracker shared demand-pressure source; {@code null} when no rejection-activation config is
+	 *                             present (then no {@code RejectionRateActivation} is wired).
 	 */
 	public static RemoteGuidanceScheduler create(DrtShiftsSpecification specification, RemoteGuidanceOperators operators,
 												 RemoteGuidanceParams params, EventsManager eventsManager, String mode,
-												 double changeoverDuration) {
+												 double changeoverDuration, RejectionRateTracker rejectionRateTracker) {
 		ActivationReconciler reconciler = ActivationReconciler.createDefault(params.getMinActiveFleet(),
-				params.getReadyBufferSize());
+				params.getReadyBufferSize(), rejectionThreshold(params));
 		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, params, eventsManager,
-				mode, changeoverDuration, reconciler);
+				mode, changeoverDuration, reconciler, rejectionRateTracker);
+	}
+
+	/**
+	 * The configured rejection-rate threshold for the demand-driven trigger, or empty when no rejection-activation
+	 * config is present. Shared by both margins so they build the identical trigger set.
+	 */
+	public static OptionalDouble rejectionThreshold(RemoteGuidanceParams params) {
+		return params.getRejectionActivationParams()
+				.map(p -> OptionalDouble.of(p.getRejectionRateThreshold()))
+				.orElseGet(OptionalDouble::empty);
 	}
 }

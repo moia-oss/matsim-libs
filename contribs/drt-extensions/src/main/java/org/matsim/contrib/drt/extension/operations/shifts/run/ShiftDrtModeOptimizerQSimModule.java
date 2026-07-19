@@ -6,6 +6,8 @@ import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.operations.guidance.IncidentDispatcher;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
+import org.matsim.contrib.drt.extension.operations.guidance.RejectionRateTracker;
+import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceShiftEndLogic;
 import org.matsim.contrib.drt.extension.operations.guidance.activation.ActivationReconciler;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
@@ -107,13 +109,16 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 			RemoteGuidanceParams rgParams = drtOperationsParams.getRemoteGuidanceParams().get();
 			double idleTimeout = rgParams.getIdleTimeout();
 			double recallLeadTime = rgParams.getRecallLeadTime();
-			// the deactivation side reads the SAME reconciler policy as the activation side (RemoteGuidanceScheduler),
-			// so both margins share one fleet-sizing target (floor + responsiveness buffer + any future trigger).
+			boolean hasRejectionActivation = rgParams.getRejectionActivationParams().isPresent();
+			// the deactivation side reads the SAME reconciler policy AND the SAME rejection-rate tracker as the
+			// activation side (RemoteGuidanceScheduler), so both margins share one fleet-sizing target (floor +
+			// responsiveness buffer + demand-driven rejection trigger).
 			ActivationReconciler reconciler = ActivationReconciler.createDefault(rgParams.getMinActiveFleet(),
-					rgParams.getReadyBufferSize());
+					rgParams.getReadyBufferSize(), RemoteGuidanceScheduler.rejectionThreshold(rgParams));
 			bindModal(ShiftEndLogic.class).toProvider(modalProvider(getter -> new RemoteGuidanceShiftEndLogic(
 					getter.getModal(Fleet.class), getter.getModal(RemoteGuidanceOperators.class), idleTimeout,
-					recallLeadTime, reconciler)));
+					recallLeadTime, reconciler,
+					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null)));
 		} else {
 			bindModal(ShiftEndLogic.class).toInstance(ShiftEndLogic.NEVER);
 		}

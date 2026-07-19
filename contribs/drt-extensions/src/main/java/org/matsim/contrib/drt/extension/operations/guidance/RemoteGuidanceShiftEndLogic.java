@@ -72,17 +72,22 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 	private final double idleTimeout;
 	private final double recallLeadTime;
 	private final ActivationReconciler reconciler;
+	// nullable: shared demand-pressure source (same instance the scheduler reads), so both margins see the same
+	// recentRejectionRate and the shared target stays consistent. null when no rejection-activation config is present.
+	private final RejectionRateTracker rejectionRateTracker;
 
 	private double lastComputedTime = Double.NaN;
 	private Set<Id<DrtShift>> recallSet = new HashSet<>();
 
 	public RemoteGuidanceShiftEndLogic(Fleet fleet, RemoteGuidanceOperators operators, double idleTimeout,
-									   double recallLeadTime, ActivationReconciler reconciler) {
+									   double recallLeadTime, ActivationReconciler reconciler,
+									   RejectionRateTracker rejectionRateTracker) {
 		this.fleet = fleet;
 		this.operators = operators;
 		this.idleTimeout = idleTimeout;
 		this.recallLeadTime = recallLeadTime;
 		this.reconciler = reconciler;
+		this.rejectionRateTracker = rejectionRateTracker;
 	}
 
 	@Override
@@ -112,8 +117,10 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 			if (!(vehicle instanceof ShiftDvrpVehicle shiftVehicle)) {
 				continue;
 			}
-			DrtShift current = shiftVehicle.getShifts().peek();
-			if (current != null && isVirtualShift(current)
+			// key on the STARTED virtual shift, not the queue head: the shift queue is start-time-ordered and holds
+			// assigned-but-unstarted future shifts, so peek() may return a shift that has not started yet.
+			boolean runningVirtual = RemoteGuidanceScheduler.startedVirtualShift(shiftVehicle).isPresent();
+			if (runningVirtual
 					&& vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED
 					// exclude vehicles already recalled (routing home). Since D21 a virtual shift has no eager tail,
 					// so a changeover in the schedule can only have been materialised by a recall → its mere
@@ -149,7 +156,7 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 		for (int i = keepIdle; i < idleInService.size(); i++) {
 			ShiftDvrpVehicle vehicle = idleInService.get(i);
 			if (idleInServiceElapsed(vehicle, now) > idleTimeout) {
-				recalled.add(vehicle.getShifts().peek().getId());
+				recalled.add(startedVirtualShiftId(vehicle));
 			}
 		}
 
@@ -160,11 +167,11 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 		int excess = active.size() - ceiling;
 		if (excess > recalled.size()) {
 			active.stream()
-					.filter(v -> !recalled.contains(v.getShifts().peek().getId()))
+					.filter(v -> !recalled.contains(startedVirtualShiftId(v)))
 					.sorted(Comparator.comparingDouble((ShiftDvrpVehicle v) -> isIdleInService(v) ? 0 : 1)
 							.thenComparing(v -> v.getId().toString()))
 					.limit(excess - recalled.size())
-					.forEach(v -> recalled.add(v.getShifts().peek().getId()));
+					.forEach(v -> recalled.add(startedVirtualShiftId(v)));
 		}
 
 		return recalled;
@@ -195,8 +202,9 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 	 * {@code capacityExceeded} pass.
 	 */
 	private int desiredActiveCount(int activeCount, int idleInService, int idleAtHub, double now) {
+		double rejectionRate = rejectionRateTracker == null ? 0.0 : rejectionRateTracker.rejectionRate(now);
 		GuidanceState state = new GuidanceState(activeCount, operators.activationCapacityAt(now), idleAtHub,
-				idleInService, 0.0);
+				idleInService, rejectionRate);
 		return reconciler.desired(state, now);
 	}
 
@@ -223,6 +231,15 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 		}
 		Task current = schedule.getCurrentTask();
 		return current instanceof DrtStayTask && current.equals(Schedules.getLastTask(schedule));
+	}
+
+	/**
+	 * The id of the vehicle's running virtual shift. Only called for vehicles already confirmed to have one (members of
+	 * {@code active}), so the started shift is guaranteed present; keyed on the started shift rather than the queue head,
+	 * which may be a not-yet-started future shift.
+	 */
+	private static Id<DrtShift> startedVirtualShiftId(ShiftDvrpVehicle vehicle) {
+		return RemoteGuidanceScheduler.startedVirtualShift(vehicle).orElseThrow().getId();
 	}
 
 	private static boolean isVirtualShift(DrtShift shift) {

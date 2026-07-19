@@ -11,6 +11,7 @@ package org.matsim.contrib.drt.extension.operations.guidance.activation;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import java.util.OptionalDouble;
 
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +28,7 @@ public class ActivationReconcilerTest {
 
 	/** The default RG activation policy: the regulatory floor + one ready buffer, exactly as the runtime builds it. */
 	private static ActivationReconciler defaultReconciler(int minActiveFleet) {
-		return ActivationReconciler.createDefault(minActiveFleet, 1);
+		return ActivationReconciler.createDefault(minActiveFleet, 1, OptionalDouble.empty());
 	}
 
 	@Test
@@ -120,7 +121,7 @@ public class ActivationReconcilerTest {
 		// The deactivation side reads desired() (not toEmit) to know how far it may recall. With a buffer of 1 and 2
 		// vehicles busy, the target is busy + buffer = 3 even though 6 are active and 4 idle in service — i.e. the target
 		// sits BELOW the active count, which is exactly the signal to recall the idle surplus down to 3.
-		ActivationReconciler r = ActivationReconciler.createDefault(0, 1);
+		ActivationReconciler r = ActivationReconciler.createDefault(0, 1, OptionalDouble.empty());
 		GuidanceState state = new GuidanceState(6, 10, 0, 4, 0.0);
 		assertThat(r.desired(state, NOW)).isEqualTo(3);
 		// and it never proposes emitting on the way down
@@ -132,8 +133,27 @@ public class ActivationReconcilerTest {
 		// buffer alone would target busy(0) + 1 = 1, but the regulatory floor of 4 holds the shared target at 4, so the
 		// deactivation side keeps 4 active in a full lull — the buffer-vs-floor churn cannot arise because both sides read
 		// this one value.
-		ActivationReconciler r = ActivationReconciler.createDefault(4, 1);
+		ActivationReconciler r = ActivationReconciler.createDefault(4, 1, OptionalDouble.empty());
 		GuidanceState state = new GuidanceState(4, 10, 0, 4, 0.0);
 		assertThat(r.desired(state, NOW)).isEqualTo(4);
+	}
+
+	@Test
+	void rejectionTrigger_overThreshold_targetsFullCapacity() {
+		// with a rejection trigger at threshold 0.1, a recent rejection rate of 0.3 pushes the target to the full
+		// activation capacity Σκ=10, regardless of the modest buffer/floor — demand pressure wins.
+		ActivationReconciler r = ActivationReconciler.createDefault(0, 1, OptionalDouble.of(0.1));
+		GuidanceState state = new GuidanceState(2, 10, 8, 0, 0.3);
+		assertThat(r.desired(state, NOW)).isEqualTo(10);
+		assertThat(r.toEmit(state, NOW)).isEqualTo(8); // ramp 2 → 10, limited by 8 idle-at-hub
+	}
+
+	@Test
+	void rejectionTrigger_belowThreshold_defersToBufferAndFloor() {
+		// same policy, but the rejection rate 0.05 is below the 0.1 threshold → the trigger proposes 0 and the shared
+		// target falls back to the buffer/floor (here: buffer 1, nothing idle in service → target busy(2)+1 = 3).
+		ActivationReconciler r = ActivationReconciler.createDefault(0, 1, OptionalDouble.of(0.1));
+		GuidanceState state = new GuidanceState(2, 10, 8, 0, 0.05);
+		assertThat(r.desired(state, NOW)).isEqualTo(3);
 	}
 }

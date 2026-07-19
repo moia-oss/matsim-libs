@@ -8,6 +8,7 @@ import com.google.inject.TypeLiteral;
 import org.matsim.contrib.common.timeprofile.ProfileWriter;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.guidance.RejectionRateTracker;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
@@ -105,9 +106,20 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 			bindModal(RemoteGuidanceOperators.class).toInstance(RemoteGuidanceOperators.fromSpecification(
 					drtShiftsSpecification, remoteGuidanceParams.getOperatorShiftType(),
 					remoteGuidanceParams.getDefaultOperatorCapacity()));
+			// demand-pressure source for the RejectionRateActivation trigger (opt-in). A single controller-scoped
+			// instance is shared by the scheduler (activation) and the QSim-scope ShiftEndLogic (deactivation) so both
+			// margins read the same recentRejectionRate and the shared activation target stays consistent. When no
+			// rejectionActivation config is present, no tracker is bound and both margins fall back to rate 0.0.
+			remoteGuidanceParams.getRejectionActivationParams().ifPresent(rejectionParams -> {
+				bindModal(RejectionRateTracker.class).toInstance(
+						new RejectionRateTracker(getMode(), rejectionParams.getWindowSize()));
+				addEventHandlerBinding().to(modalKey(RejectionRateTracker.class));
+			});
+			boolean hasRejectionActivation = remoteGuidanceParams.getRejectionActivationParams().isPresent();
 			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> RemoteGuidanceScheduler.create(
 					drtShiftsSpecification, getter.getModal(RemoteGuidanceOperators.class), remoteGuidanceParams,
-					getter.get(EventsManager.class), getMode(), shiftsParams.getChangeoverDuration())));
+					getter.get(EventsManager.class), getMode(), shiftsParams.getChangeoverDuration(),
+					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null)));
 		} else {
 			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> new DefaultShiftScheduler(drtShiftsSpecification)));
 		}

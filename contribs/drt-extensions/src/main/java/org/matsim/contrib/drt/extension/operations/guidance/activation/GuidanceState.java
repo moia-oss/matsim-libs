@@ -27,8 +27,9 @@ package org.matsim.contrib.drt.extension.operations.guidance.activation;
  *                            hard upper bound on the active count.
  * @param idleAtHub           number of out-of-service vehicles waiting at a hub (activation source).
  * @param idleInService       number of active vehicles idle in service with no committed work (ready buffer).
- * @param recentRejectionRate a within-iteration demand-pressure signal; not yet wired (always 0.0) — reserved as the
- *                            seam for a future demand-driven activation trigger (RF: {@code RejectionRateActivation}).
+ * @param recentRejectionRate the recent request-rejection rate {@code rejected / (rejected + scheduled)} over a trailing
+ *                            window, fed by {@code RejectionRateTracker} when {@code rejectionActivation} is configured
+ *                            (else 0.0). The demand-pressure signal read by {@code RejectionRateActivation}.
  *
  * @author nkuehnel / MOIA
  */

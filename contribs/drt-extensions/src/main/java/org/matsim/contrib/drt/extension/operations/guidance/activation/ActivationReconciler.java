@@ -8,7 +8,9 @@
  */
 package org.matsim.contrib.drt.extension.operations.guidance.activation;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalDouble;
 
 /**
  * Combines a set of {@link ActivationTrigger}s into the single fleet-sizing target that governs the remote guidance
@@ -46,15 +48,23 @@ public final class ActivationReconciler {
 	}
 
 	/**
-	 * The default remote guidance activation policy (RF1 / D17): the regulatory floor {@link MinFleetActivation} plus a
-	 * single {@link IdleBufferActivation} responsiveness buffer. This is the one place the default trigger set is
-	 * defined, so the scheduler (activation) and the shift-end logic (deactivation) build an identical reconciler and
-	 * thus share the same {@link #desired} target. The greedy baseline ({@link GreedyIdleActivation}) is deliberately
-	 * not included — it reproduces the low-demand sawtooth.
+	 * The default remote guidance activation policy (RF1 / D17): the regulatory floor {@link MinFleetActivation}, a
+	 * single {@link IdleBufferActivation} responsiveness buffer, and — iff a rejection-rate threshold is configured — a
+	 * demand-driven {@link RejectionRateActivation}. This is the one place the default trigger set is defined, so the
+	 * scheduler (activation) and the shift-end logic (deactivation) build an identical reconciler and thus share the
+	 * same {@link #desired} target. The greedy baseline ({@link GreedyIdleActivation}) is deliberately not included — it
+	 * reproduces the low-demand sawtooth.
+	 *
+	 * @param rejectionRateThreshold if present, adds a {@link RejectionRateActivation} at this threshold; if empty, no
+	 *                               demand-driven trigger is wired (the {@code recentRejectionRate} signal is ignored).
 	 */
-	public static ActivationReconciler createDefault(int minActiveFleet, int readyBufferSize) {
-		return new ActivationReconciler(
-				List.of(new MinFleetActivation(minActiveFleet), new IdleBufferActivation(readyBufferSize)));
+	public static ActivationReconciler createDefault(int minActiveFleet, int readyBufferSize,
+			OptionalDouble rejectionRateThreshold) {
+		List<ActivationTrigger> triggers = new ArrayList<>();
+		triggers.add(new MinFleetActivation(minActiveFleet));
+		triggers.add(new IdleBufferActivation(readyBufferSize));
+		rejectionRateThreshold.ifPresent(threshold -> triggers.add(new RejectionRateActivation(threshold)));
+		return new ActivationReconciler(triggers);
 	}
 
 	/**

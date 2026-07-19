@@ -76,15 +76,27 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 	@Nullable
 	private IncidentParams incidentParams;
 
+	// optional: demand-driven activation. If absent, no rejection-rate trigger is wired.
+	@Nullable
+	private RejectionActivationParams rejectionActivationParams;
+
 	public RemoteGuidanceParams() {
 		super(SET_NAME);
 		// incidents (optional)
 		addDefinition(IncidentParams.SET_NAME, IncidentParams::new, () -> incidentParams,
 				params -> incidentParams = (IncidentParams) params);
+		// demand-driven activation (optional)
+		addDefinition(RejectionActivationParams.SET_NAME, RejectionActivationParams::new,
+				() -> rejectionActivationParams,
+				params -> rejectionActivationParams = (RejectionActivationParams) params);
 	}
 
 	public Optional<IncidentParams> getIncidentParams() {
 		return Optional.ofNullable(incidentParams);
+	}
+
+	public Optional<RejectionActivationParams> getRejectionActivationParams() {
+		return Optional.ofNullable(rejectionActivationParams);
 	}
 
 	public String getOperatorShiftType() {

@@ -9,6 +9,7 @@ import org.matsim.contrib.drt.extension.operations.DrtOperationsControlerCreator
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.operations.guidance.config.IncidentParams;
 import org.matsim.contrib.drt.extension.operations.guidance.config.IncidentSeverityParams;
+import org.matsim.contrib.drt.extension.operations.guidance.config.RejectionActivationParams;
 import org.matsim.contrib.drt.extension.operations.guidance.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentAssignedToOperatorEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentResolvedEvent;
@@ -180,6 +181,14 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		severityParams.setDurationSigma(0.5);
 		incidentParams.addParameterSet(severityParams);
 		remoteGuidanceParams.addParameterSet(incidentParams);
+
+		// demand-driven activation (opt-in): exercises the RejectionRateActivation trigger + the shared RejectionRateTracker
+		// wiring across both margins. A low threshold so any rejection pressure in the small scenario engages the trigger.
+		RejectionActivationParams rejectionActivationParams = (RejectionActivationParams) remoteGuidanceParams
+				.createParameterSet(RejectionActivationParams.SET_NAME);
+		rejectionActivationParams.setWindowSize(900);
+		rejectionActivationParams.setRejectionRateThreshold(0.05);
+		remoteGuidanceParams.addParameterSet(rejectionActivationParams);
 
 		drtCfg.addParameterSet(operationsParams);
 
