@@ -139,6 +139,24 @@ public final class RemoteGuidanceOperators {
 	}
 
 	/**
+	 * @return the number of operators whose <em>planned</em> window covers {@code now} (i.e.
+	 * {@code startTime <= now < plannedEndTime}). Unlike {@link #onDutyCount(double)} this depends only on the immutable
+	 * shift schedule, not on the runtime {@code released} flag, so it is safe to query retroactively for a historical
+	 * time (e.g. an end-of-iteration utilisation series). This is the incident server-pool size — an incident always
+	 * occupies exactly one operator regardless of κ (D14) — so it is the correct utilisation denominator (a numerator
+	 * that momentarily exceeds it reflects an operator retained past its planned end to finish a queued incident).
+	 */
+	public int plannedOnDutyCount(double now) {
+		int count = 0;
+		for (Operator operator : operators.values()) {
+			if (operator.onDutyForActivation(now)) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	/**
 	 * @return the coverage capacity {@code Σκ(t)} — the summed capacity of all operators on duty for coverage at
 	 * {@code now} (including operators retained past their planned end). The active supervised fleet must never exceed
 	 * this, and it is the {@link IncidentDispatcher}'s server pool.
