@@ -378,8 +378,8 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 												 RemoteGuidanceOperatorState operatorState, RemoteGuidanceParams params,
 												 EventsManager eventsManager, String mode, double changeoverDuration,
 												 RejectionRateTracker rejectionRateTracker) {
-		ActivationReconciler reconciler = ActivationReconciler.createDefault(params.getMinActiveFleet(),
-				params.getReadyBufferSize(), rejectionThreshold(params));
+		ActivationReconciler reconciler = ActivationReconciler.create(params.getActivationPolicy(),
+				params.getMinActiveFleet(), params.getReadyBufferSize(), rejectionThreshold(params));
 		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, operatorState, params,
 				eventsManager, mode, changeoverDuration, reconciler, rejectionRateTracker);
 	}

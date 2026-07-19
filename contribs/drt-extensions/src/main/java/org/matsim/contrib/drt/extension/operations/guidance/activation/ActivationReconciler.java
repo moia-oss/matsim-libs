@@ -8,6 +8,8 @@
  */
 package org.matsim.contrib.drt.extension.operations.guidance.activation;
 
+import org.matsim.contrib.drt.extension.operations.guidance.config.ActivationPolicy;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalDouble;
@@ -48,23 +50,42 @@ public final class ActivationReconciler {
 	}
 
 	/**
-	 * The default remote guidance activation policy (RF1 / D17): the regulatory floor {@link MinFleetActivation}, a
-	 * single {@link IdleBufferActivation} responsiveness buffer, and — iff a rejection-rate threshold is configured — a
-	 * demand-driven {@link RejectionRateActivation}. This is the one place the default trigger set is defined, so the
-	 * scheduler (activation) and the shift-end logic (deactivation) build an identical reconciler and thus share the
-	 * same {@link #desired} target. The greedy baseline ({@link GreedyIdleActivation}) is deliberately not included — it
-	 * reproduces the low-demand sawtooth.
+	 * Builds the reconciler for the configured {@link ActivationPolicy} (RF1 / D17). This is the one place the trigger
+	 * set is defined per policy, so the scheduler (activation) and the shift-end logic (deactivation) build an identical
+	 * reconciler and thus share the same {@link #desired} target.
+	 * <ul>
+	 *     <li>{@link ActivationPolicy#buffered} — regulatory floor {@link MinFleetActivation} + a single
+	 *         {@link IdleBufferActivation} responsiveness buffer + (iff a threshold is configured) a demand-driven
+	 *         {@link RejectionRateActivation}. Damps the low-demand sawtooth.</li>
+	 *     <li>{@link ActivationPolicy#greedy} — regulatory floor + {@link GreedyIdleActivation} (activate every
+	 *         idle-at-hub vehicle up to Σκ). The buffer and rejection trigger are irrelevant under greedy (dominated) and
+	 *         are not wired.</li>
+	 * </ul>
 	 *
-	 * @param rejectionRateThreshold if present, adds a {@link RejectionRateActivation} at this threshold; if empty, no
-	 *                               demand-driven trigger is wired (the {@code recentRejectionRate} signal is ignored).
+	 * @param rejectionRateThreshold if present (and policy is buffered), adds a {@link RejectionRateActivation} at this
+	 *                               threshold; if empty, no demand-driven trigger is wired.
 	 */
-	public static ActivationReconciler createDefault(int minActiveFleet, int readyBufferSize,
+	public static ActivationReconciler create(ActivationPolicy policy, int minActiveFleet, int readyBufferSize,
 			OptionalDouble rejectionRateThreshold) {
 		List<ActivationTrigger> triggers = new ArrayList<>();
 		triggers.add(new MinFleetActivation(minActiveFleet));
-		triggers.add(new IdleBufferActivation(readyBufferSize));
-		rejectionRateThreshold.ifPresent(threshold -> triggers.add(new RejectionRateActivation(threshold)));
+		switch (policy) {
+			case buffered -> {
+				triggers.add(new IdleBufferActivation(readyBufferSize));
+				rejectionRateThreshold.ifPresent(threshold -> triggers.add(new RejectionRateActivation(threshold)));
+			}
+			case greedy -> triggers.add(new GreedyIdleActivation());
+		}
 		return new ActivationReconciler(triggers);
+	}
+
+	/**
+	 * Convenience factory for the default {@link ActivationPolicy#buffered} policy. Retained for the unit tests and any
+	 * caller that does not vary the policy.
+	 */
+	public static ActivationReconciler createDefault(int minActiveFleet, int readyBufferSize,
+			OptionalDouble rejectionRateThreshold) {
+		return create(ActivationPolicy.buffered, minActiveFleet, readyBufferSize, rejectionRateThreshold);
 	}
 
 	/**

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.OptionalDouble;
 
 import org.junit.jupiter.api.Test;
+import org.matsim.contrib.drt.extension.operations.guidance.config.ActivationPolicy;
 
 /**
  * Unit tests for the activation reconciliation (RF6): pure over a hand-built {@link GuidanceState}, no QSim. Documents
@@ -155,5 +156,41 @@ public class ActivationReconcilerTest {
 		ActivationReconciler r = ActivationReconciler.createDefault(0, 1, OptionalDouble.of(0.1));
 		GuidanceState state = new GuidanceState(2, 10, 8, 0, 0.05);
 		assertThat(r.desired(state, NOW)).isEqualTo(3);
+	}
+
+	@Test
+	void createFactory_bufferedPolicy_keepsOneBuffer() {
+		// the config-selected 'buffered' policy behaves like the default: with 8 idle at hub it keeps just one buffer.
+		ActivationReconciler r = ActivationReconciler.create(ActivationPolicy.buffered, 0, 1, OptionalDouble.empty());
+		GuidanceState state = new GuidanceState(2, 10, 8, 0, 0.0);
+		assertThat(r.toEmit(state, NOW)).isEqualTo(1);
+	}
+
+	@Test
+	void createFactory_greedyPolicy_fillsCapacity() {
+		// the config-selected 'greedy' policy pulls every idle-at-hub vehicle in, up to Σκ.
+		ActivationReconciler r = ActivationReconciler.create(ActivationPolicy.greedy, 0, 1, OptionalDouble.empty());
+		GuidanceState state = new GuidanceState(2, 10, 8, 0, 0.0);
+		assertThat(r.desired(state, NOW)).isEqualTo(10); // busy target 2+8=10, at ceiling
+		assertThat(r.toEmit(state, NOW)).isEqualTo(8);
+	}
+
+	@Test
+	void createFactory_greedyPolicy_stillHonoursFloorButFloorIsDominated() {
+		// greedy already targets the ceiling, so the regulatory floor is dominated but does no harm when set.
+		ActivationReconciler r = ActivationReconciler.create(ActivationPolicy.greedy, 3, 1, OptionalDouble.empty());
+		GuidanceState state = new GuidanceState(0, 10, 2, 0, 0.0);
+		// greedy target = 0+2 = 2; floor = 3 → max = 3; clamped to ceiling 10 → 3
+		assertThat(r.desired(state, NOW)).isEqualTo(3);
+	}
+
+	@Test
+	void createFactory_greedyPolicy_ignoresRejectionThreshold() {
+		// under greedy the rejection trigger is not wired; a configured threshold has no additional effect (greedy
+		// already targets the ceiling anyway, so this just documents that no RejectionRateActivation is added).
+		ActivationReconciler r = ActivationReconciler.create(ActivationPolicy.greedy, 0, 1, OptionalDouble.of(0.1));
+		GuidanceState state = new GuidanceState(1, 10, 0, 0, 0.3); // rate over threshold, but nothing idle at hub
+		// greedy target = 1+0 = 1 (no idle-at-hub to pull); a wired rejection trigger would have targeted Σκ=10.
+		assertThat(r.desired(state, NOW)).isEqualTo(1);
 	}
 }

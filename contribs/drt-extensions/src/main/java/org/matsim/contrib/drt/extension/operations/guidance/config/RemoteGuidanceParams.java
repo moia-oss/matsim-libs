@@ -10,6 +10,7 @@ package org.matsim.contrib.drt.extension.operations.guidance.config;
 
 import com.google.common.base.Verify;
 import jakarta.annotation.Nullable;
+import org.apache.logging.log4j.LogManager;
 import org.matsim.contrib.common.util.ReflectiveConfigGroupWithConfigurableParameterSets;
 import org.matsim.core.config.Config;
 
@@ -52,6 +53,13 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 			+ "future work) for longer than this is deactivated and returned to a hub (demand-slack recall). "
 			+ "Defaults to 900.")
 	private double idleTimeout = 900;
+
+	@Parameter
+	@Comment("Activation policy selecting how many vehicles to keep supervised. 'buffered' (default) = regulatory floor "
+			+ "+ a ready responsiveness buffer (+ demand-driven rejection trigger if configured), damping the low-demand "
+			+ "sawtooth. 'greedy' = the baseline that activates every idle-at-hub vehicle up to capacity regardless of "
+			+ "demand (for comparison runs).")
+	private ActivationPolicy activationPolicy = ActivationPolicy.buffered;
 
 	@Parameter
 	@Comment("Hard floor on the number of active (supervised) vehicles: at least this many are kept active while "
@@ -139,6 +147,14 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		this.recallLeadTime = recallLeadTime;
 	}
 
+	public ActivationPolicy getActivationPolicy() {
+		return activationPolicy;
+	}
+
+	public void setActivationPolicy(ActivationPolicy activationPolicy) {
+		this.activationPolicy = activationPolicy;
+	}
+
 	public int getMinActiveFleet() {
 		return minActiveFleet;
 	}
@@ -162,5 +178,10 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		Verify.verify(minRemainingShiftTimeForActivation >= 0, "minRemainingShiftTimeForActivation must not be negative.");
 		Verify.verify(minActiveFleet >= 0, "minActiveFleet must not be negative.");
 		Verify.verify(readyBufferSize >= 0, "readyBufferSize must not be negative.");
+		if (activationPolicy == ActivationPolicy.greedy && rejectionActivationParams != null) {
+			LogManager.getLogger(RemoteGuidanceParams.class).warn("A 'rejectionActivation' config is present but "
+					+ "activationPolicy is 'greedy'; the demand-driven rejection trigger is not wired under the greedy "
+					+ "policy (greedy already drives the fleet to capacity). The rejection config will have no effect.");
+		}
 	}
 }
