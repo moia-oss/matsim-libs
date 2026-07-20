@@ -31,14 +31,17 @@ public class RemoteGuidanceOperatorStartedEvent extends Event {
 
 	public static final String ATTRIBUTE_MODE = "mode";
 	public static final String ATTRIBUTE_OPERATOR_ID = "operator_id";
+	public static final String ATTRIBUTE_CAPACITY = "capacity";
 
 	private final String mode;
 	private final Id<DrtShift> operatorId;
+	private final int capacity;
 
-	public RemoteGuidanceOperatorStartedEvent(double time, String mode, Id<DrtShift> operatorId) {
+	public RemoteGuidanceOperatorStartedEvent(double time, String mode, Id<DrtShift> operatorId, int capacity) {
 		super(time);
 		this.mode = mode;
 		this.operatorId = operatorId;
+		this.capacity = capacity;
 	}
 
 	public String getMode() {
@@ -47,6 +50,11 @@ public class RemoteGuidanceOperatorStartedEvent extends Event {
 
 	public Id<DrtShift> getOperatorId() {
 		return operatorId;
+	}
+
+	/** The operator's supervision capacity κ (how many vehicles it can supervise simultaneously). */
+	public int getCapacity() {
+		return capacity;
 	}
 
 	@Override
@@ -59,6 +67,7 @@ public class RemoteGuidanceOperatorStartedEvent extends Event {
 		Map<String, String> attr = super.getAttributes();
 		attr.put(ATTRIBUTE_MODE, mode);
 		attr.put(ATTRIBUTE_OPERATOR_ID, operatorId + "");
+		attr.put(ATTRIBUTE_CAPACITY, Integer.toString(capacity));
 		return attr;
 	}
 }

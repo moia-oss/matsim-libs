@@ -17,6 +17,7 @@ import org.geotools.feature.simple.SimpleFeatureTypeBuilder;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartUtils;
 import org.jfree.chart.JFreeChart;
+import org.jfree.chart.axis.NumberAxis;
 import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.chart.plot.XYPlot;
 import org.jfree.data.xy.XYSeries;
@@ -29,6 +30,7 @@ import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector;
 import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector.EventSequence;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.ActivationChange;
+import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.CoverageChange;
 import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.IncidentRecord;
 import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.OperatorChange;
 import org.matsim.contrib.drt.extension.operations.guidance.analysis.RemoteGuidanceAnalysisTracker.OperatorRecord;
@@ -58,6 +60,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.StringJoiner;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
@@ -148,7 +151,8 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		writeOperatorUtilisation(incidents, tracker.getOperatorChanges(),
 				filename(event, "operatorUtilisation", ".csv"),
 				createGraphs ? filename(event, "operatorUtilisation", ".png") : null);           // B3
-		writeActiveVehicles(tracker.getActivationChanges(), filename(event, "activeVehicles", ".csv"),
+		writeActiveVehicles(tracker.getActivationChanges(), tracker.getCoverageChanges(),
+				filename(event, "activeVehicles", ".csv"),
 				createGraphs ? filename(event, "activeVehicles", ".png") : null);                // B4
 		writeDeactivationReasons(filename(event, "deactivationReasons", ".csv"));                // B5
 		writeOperatorHours(tracker.getOperatorRecords(), event.getIteration(),
@@ -249,23 +253,20 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 
 	private void writeOperatorUtilisation(List<IncidentRecord> incidents, List<OperatorChange> operatorChanges,
 										  String csvFile, String pngFile) {
-		// the concurrent-busy step function from operator-busy intervals [assignTime, resolveTime].
-		List<double[]> busyChanges = new ArrayList<>(); // {time, delta}
+		// one merged {time -> (busyDelta, onDutyDelta)} timeline from BOTH streams: operator-busy intervals
+		// [assignTime, resolveTime] and the real on-duty operator started/ended changes. Deltas at the same timestamp
+		// are summed so each emitted point is a settled state (no spurious intermediate values / vertical spikes).
+		TreeMap<Double, int[]> byTime = new TreeMap<>(); // time -> {busyDelta, onDutyDelta}
+		byTime.put(0.0, new int[2]); // anchor at t=0 (nothing busy / on duty before the first operator starts).
 		for (IncidentRecord i : incidents) {
 			if (!Double.isNaN(i.assignTime())) {
-				busyChanges.add(new double[] {i.assignTime(), +1});
-				busyChanges.add(new double[] {i.resolveTime(), -1});
+				byTime.computeIfAbsent(i.assignTime(), t -> new int[2])[0] += 1;
+				byTime.computeIfAbsent(i.resolveTime(), t -> new int[2])[0] -= 1;
 			}
 		}
-		// the REAL on-duty step function from operator started/ended events; merge both change streams onto one timeline.
 		for (OperatorChange c : operatorChanges) {
-			busyChanges.add(new double[] {c.time(), 0}); // sentinel so the on-duty count is sampled at operator changes too
+			byTime.computeIfAbsent(c.time(), t -> new int[2])[1] += c.delta();
 		}
-		busyChanges.sort(Comparator.comparingDouble((double[] c) -> c[0]).thenComparingDouble(c -> c[1]));
-
-		// pre-index operator changes by time to reconstruct the real on-duty count as a running total.
-		List<OperatorChange> sortedOperatorChanges = new ArrayList<>(operatorChanges);
-		sortedOperatorChanges.sort(Comparator.comparingDouble(OperatorChange::time).thenComparingInt(OperatorChange::delta));
 
 		XYSeries busySeries = new XYSeries("busy operators", false, true);
 		XYSeries onDutySeries = new XYSeries("on-duty operators", false, true);
@@ -275,15 +276,10 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 			bw.append(line("time", "busyOperators", "onDutyOperators", "plannedOnDutyOperators", "utilisation"));
 			int busy = 0;
 			int onDuty = 0;
-			int opIdx = 0;
-			for (double[] c : busyChanges) {
-				double time = c[0];
-				// advance the real on-duty running total to include all operator changes at or before this time.
-				while (opIdx < sortedOperatorChanges.size() && sortedOperatorChanges.get(opIdx).time() <= time) {
-					onDuty += sortedOperatorChanges.get(opIdx).delta();
-					opIdx++;
-				}
-				busy += (int) c[1];
+			for (Map.Entry<Double, int[]> e : byTime.entrySet()) {
+				double time = e.getKey();
+				busy += e.getValue()[0];
+				onDuty += e.getValue()[1];
 				int planned = operators.plannedOnDutyCount(time); // schedule-based comparison line
 				double utilisation = onDuty == 0 ? Double.NaN : (double) busy / onDuty;
 				bw.append(line(time, busy, onDuty, planned, utilisation));
@@ -303,29 +299,53 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 
 	// ---------------------------------------------------------------------------------------- B4: active vehicles
 
-	private void writeActiveVehicles(List<ActivationChange> changes, String csvFile, String pngFile) {
-		List<ActivationChange> sorted = new ArrayList<>(changes);
-		sorted.sort(Comparator.comparingDouble(ActivationChange::time).thenComparingInt(ActivationChange::delta));
+	private void writeActiveVehicles(List<ActivationChange> changes, List<CoverageChange> coverageChanges,
+									 String csvFile, String pngFile) {
+		// merge the active-vehicle deltas and the κ-weighted coverage-capacity deltas onto one timeline; sum deltas at
+		// the same timestamp so each emitted point is a settled state (no spurious vertical spikes / multiple y per x).
+		TreeMap<Double, int[]> byTime = new TreeMap<>(); // time -> {activeDelta, coverageDelta}
+		byTime.put(0.0, new int[2]); // anchor all series at t=0 with value 0 (nothing active / on duty before the first
+		// operator starts), so the step lines begin at 0 and step up at the first operator start rather than appearing
+		// to start mid-air at the first event's value.
+		for (ActivationChange c : changes) {
+			byTime.computeIfAbsent(c.time(), t -> new int[2])[0] += c.delta();
+		}
+		for (CoverageChange c : coverageChanges) {
+			byTime.computeIfAbsent(c.time(), t -> new int[2])[1] += c.delta();
+		}
 
 		XYSeries activeSeries = new XYSeries("active vehicles", false, true);
-		XYSeries ceilingSeries = new XYSeries("activation ceiling", false, true);
+		XYSeries coverageSeries = new XYSeries("supervision capacity", false, true);
+		XYSeries ceilingSeries = new XYSeries("activation ceiling (planned)", false, true);
 
 		try (BufferedWriter bw = IOUtils.getBufferedWriter(csvFile)) {
-			bw.append(line("time", "activeVehicles", "activationCapacity"));
+			// coverageCapacity = effective supervision capacity (operators on duty incl. retained past planned end) —
+			// this is the bound the active fleet must always respect. activationCapacity = the planned-window ceiling
+			// for activating NEW vehicles (drops at an operator's planned end, so it can sit below coverage during the
+			// wind-down while retained operators still supervise the vehicles heading home). See D22.
+			bw.append(line("time", "activeVehicles", "coverageCapacity", "activationCapacity"));
 			int active = 0;
-			for (ActivationChange c : sorted) {
-				active += c.delta();
-				int ceiling = operators.activationCapacityAt(c.time());
-				bw.append(line(c.time(), active, ceiling));
-				activeSeries.add(c.time() / 3600.0, active);
-				ceilingSeries.add(c.time() / 3600.0, ceiling);
+			int coverage = 0;
+			for (Map.Entry<Double, int[]> e : byTime.entrySet()) {
+				double time = e.getKey();
+				active += e.getValue()[0];
+				coverage += e.getValue()[1];
+				int ceiling = operators.activationCapacityAt(time);
+				bw.append(line(time, active, coverage, ceiling));
+				activeSeries.add(time / 3600.0, active);
+				coverageSeries.add(time / 3600.0, coverage);
+				ceilingSeries.add(time / 3600.0, ceiling);
 			}
 		} catch (IOException e) {
 			throw new UncheckedIOException(e);
 		}
 
 		if (pngFile != null) {
-			writeStepChart(pngFile, "Remote guidance active vehicles", "# vehicles", activeSeries, ceilingSeries);
+			// coverage is the prominent reference (active <= coverage always holds); the planned ceiling is the thin
+			// dashed secondary line (it may dip below coverage during wind-down — that is D22, not an error).
+			writeStepChart(pngFile, "Remote guidance active vehicles", "# vehicles",
+					List.of(2), // dashed series index: the planned ceiling (series 2)
+					activeSeries, coverageSeries, ceilingSeries);
 		}
 	}
 
@@ -511,6 +531,11 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 	// ---------------------------------------------------------------------------------------- helpers
 
 	private void writeStepChart(String pngFile, String title, String rangeLabel, XYSeries... series) {
+		writeStepChart(pngFile, title, rangeLabel, List.of(), series);
+	}
+
+	private void writeStepChart(String pngFile, String title, String rangeLabel, List<Integer> dashedSeriesIndices,
+								XYSeries... series) {
 		XYSeriesCollection dataset = new XYSeriesCollection();
 		for (XYSeries s : series) {
 			dataset.addSeries(s);
@@ -518,8 +543,15 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		JFreeChart chart = ChartFactory.createXYStepChart(title, "time [h]", rangeLabel, dataset,
 				PlotOrientation.VERTICAL, true, false, false);
 		XYPlot plot = chart.getXYPlot();
+		// use a plain numeric domain axis: the default axis renders the (small) hour values in a time-of-day-like
+		// "01:00:00.004" format (cf. ShiftHistogramChart, which sets a NumberAxis for the same reason).
+		plot.setDomainAxis(new NumberAxis("time [h]"));
+		float[] dash = {6.0f, 4.0f};
 		for (int i = 0; i < series.length; i++) {
-			plot.getRenderer().setSeriesStroke(i, new BasicStroke(2.0f));
+			BasicStroke stroke = dashedSeriesIndices.contains(i)
+					? new BasicStroke(1.5f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10.0f, dash, 0.0f)
+					: new BasicStroke(2.0f);
+			plot.getRenderer().setSeriesStroke(i, stroke);
 		}
 		plot.setBackgroundPaint(Color.white);
 		plot.setRangeGridlinePaint(Color.gray);

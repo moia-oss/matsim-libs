@@ -138,14 +138,17 @@ public class RemoteGuidanceAnalysisTrackerTest {
 	void operatorLifecycleReconstruction() {
 		RemoteGuidanceAnalysisTracker tracker = new RemoteGuidanceAnalysisTracker(MODE);
 
-		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o1")));
-		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o2")));
+		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o1"), 5));
+		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o2"), 3));
 		// o1 ends on time; o2 is retained 120s past its planned end (D22 deferral).
 		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(3600, MODE, op("o1"), 3600));
 		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(3720, MODE, op("o2"), 3600));
 
 		assertThat(tracker.getOperatorChanges()).extracting(RemoteGuidanceAnalysisTracker.OperatorChange::delta)
 				.containsExactly(+1, +1, -1, -1);
+		// coverage capacity is κ-weighted: +5, +3, then -5 (o1), -3 (o2) → the ended deltas match each operator's κ.
+		assertThat(tracker.getCoverageChanges()).extracting(RemoteGuidanceAnalysisTracker.CoverageChange::delta)
+				.containsExactly(5, 3, -5, -3);
 
 		assertThat(tracker.getOperatorRecords()).hasSize(2);
 		OperatorRecord o1 = tracker.getOperatorRecords().get(0);
@@ -165,7 +168,7 @@ public class RemoteGuidanceAnalysisTrackerTest {
 		tracker.handleEvent(new IncidentAssignedToOperatorEvent(100, "otherMode", veh("v1"), op("o1"), 1));
 		tracker.handleEvent(new IncidentResolvedEvent(200, "otherMode", veh("v1"), op("o1"), 1, 100, false, 0));
 		tracker.handleEvent(new VehicleActivatedForRemoteGuidanceEvent(100, "otherMode", veh("v1")));
-		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, "otherMode", op("o1")));
+		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, "otherMode", op("o1"), 5));
 		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(100, "otherMode", op("o1"), 100));
 
 		assertThat(tracker.getCompletedIncidents()).isEmpty();
@@ -181,7 +184,7 @@ public class RemoteGuidanceAnalysisTrackerTest {
 		tracker.handleEvent(new IncidentAssignedToOperatorEvent(100, MODE, veh("v1"), op("o1"), 1));
 		tracker.handleEvent(new IncidentResolvedEvent(200, MODE, veh("v1"), op("o1"), 1, 100, false, 0));
 		tracker.handleEvent(new VehicleActivatedForRemoteGuidanceEvent(100, MODE, veh("v1")));
-		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o1")));
+		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o1"), 5));
 		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(100, MODE, op("o1"), 100));
 
 		tracker.reset(1);
@@ -191,6 +194,7 @@ public class RemoteGuidanceAnalysisTrackerTest {
 		assertThat(tracker.getDeactivationReasonCounts()).isEmpty();
 		assertThat(tracker.getActivationCount()).isZero();
 		assertThat(tracker.getOperatorChanges()).isEmpty();
+		assertThat(tracker.getCoverageChanges()).isEmpty();
 		assertThat(tracker.getOperatorRecords()).isEmpty();
 	}
 }

@@ -68,10 +68,14 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 	private Map<DeactivationReason, Integer> deactivationReasonCounts = new EnumMap<>(DeactivationReason.class);
 	private int activationCount = 0;
 
-	// chronological operator-lifecycle step sequence (+1 started, -1 ended) + one record per ended operator.
+	// chronological operator-lifecycle step sequences: operatorChanges = head-count (+1 started, -1 ended);
+	// coverageChanges = κ-weighted coverage capacity (+κ started, -κ ended). Both reconstruct real (effective) windows
+	// from the events, NOT from a retroactive query of mutable registry state. Plus one record per ended operator.
 	private List<OperatorChange> operatorChanges = new ArrayList<>();
+	private List<CoverageChange> coverageChanges = new ArrayList<>();
 	private List<OperatorRecord> operatorRecords = new ArrayList<>();
 	private Map<Id<DrtShift>, Double> operatorStartTimes = new HashMap<>();
+	private Map<Id<DrtShift>, Integer> operatorCapacities = new HashMap<>();
 
 	public RemoteGuidanceAnalysisTracker(String mode) {
 		this.mode = mode;
@@ -87,8 +91,12 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 	public record ActivationChange(double time, int delta) {
 	}
 
-	/** One operator-lifecycle change: {@code delta} is +1 for a start, -1 for an end. */
+	/** One operator-lifecycle head-count change: {@code delta} is +1 for a start, -1 for an end. */
 	public record OperatorChange(double time, int delta) {
+	}
+
+	/** One coverage-capacity change: {@code delta} is +κ at an operator start, -κ at its (effective) end. */
+	public record CoverageChange(double time, int delta) {
 	}
 
 	/** A completed operator duty period: actual end may exceed {@code plannedEndTime} by the D22 retention overhead. */
@@ -150,11 +158,15 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 		} else if (event instanceof RemoteGuidanceOperatorStartedEvent started) {
 			if (started.getMode().equals(mode)) {
 				operatorChanges.add(new OperatorChange(started.getTime(), +1));
+				coverageChanges.add(new CoverageChange(started.getTime(), started.getCapacity()));
 				operatorStartTimes.put(started.getOperatorId(), started.getTime());
+				operatorCapacities.put(started.getOperatorId(), started.getCapacity());
 			}
 		} else if (event instanceof RemoteGuidanceOperatorEndedEvent ended) {
 			if (ended.getMode().equals(mode)) {
 				operatorChanges.add(new OperatorChange(ended.getTime(), -1));
+				int capacity = operatorCapacities.getOrDefault(ended.getOperatorId(), 0);
+				coverageChanges.add(new CoverageChange(ended.getTime(), -capacity));
 				double startTime = operatorStartTimes.getOrDefault(ended.getOperatorId(), Double.NaN);
 				operatorRecords.add(new OperatorRecord(ended.getOperatorId(), startTime, ended.getPlannedEndTime(),
 						ended.getTime()));
@@ -182,6 +194,10 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 		return operatorChanges;
 	}
 
+	public List<CoverageChange> getCoverageChanges() {
+		return coverageChanges;
+	}
+
 	public List<OperatorRecord> getOperatorRecords() {
 		return operatorRecords;
 	}
@@ -194,7 +210,9 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 		this.deactivationReasonCounts = new EnumMap<>(DeactivationReason.class);
 		this.activationCount = 0;
 		this.operatorChanges = new ArrayList<>();
+		this.coverageChanges = new ArrayList<>();
 		this.operatorRecords = new ArrayList<>();
 		this.operatorStartTimes = new HashMap<>();
+		this.operatorCapacities = new HashMap<>();
 	}
 }

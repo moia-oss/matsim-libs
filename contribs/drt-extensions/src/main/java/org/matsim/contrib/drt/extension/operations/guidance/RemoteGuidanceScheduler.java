@@ -175,7 +175,8 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// operator lifecycle: fire a started event for every operator whose planned start has been reached (today the
 		// actual start == planned start; the emission point exists for a future delayed start). Idempotent per operator.
 		for (RemoteGuidanceOperators.Operator started : operatorState.markStarted(now)) {
-			eventsManager.processEvent(new RemoteGuidanceOperatorStartedEvent(now, mode, started.id()));
+			eventsManager.processEvent(new RemoteGuidanceOperatorStartedEvent(now, mode, started.id(),
+					started.capacity()));
 		}
 
 		// single fleet scan: reconciles which virtual shifts are live (firing activation/deactivation events) AND
