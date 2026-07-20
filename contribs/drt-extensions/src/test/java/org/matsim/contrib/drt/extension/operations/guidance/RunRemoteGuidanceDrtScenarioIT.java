@@ -49,16 +49,20 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Integration test for remote guidance: two operators with capacity 5 each may supervise at most 10 of the 20 fleet
- * vehicles simultaneously. Asserts that vehicles get activated under operators and that the concurrent number of
- * supervised vehicles never exceeds the combined operator capacity.
+ * Integration test for remote guidance: four operators (a morning pair and an afternoon/evening pair, staggered so at
+ * most three overlap at once) with capacity 5 each supervise the 20-vehicle fleet across the operating day. Asserts that
+ * vehicles get activated under operators and that the concurrent number of supervised vehicles never exceeds the
+ * combined capacity of the simultaneously on-duty operators.
  *
  * @author nkuehnel / MOIA
  */
 public class RunRemoteGuidanceDrtScenarioIT {
 
 	private static final int OPERATOR_CAPACITY = 5;
-	private static final int NUMBER_OF_OPERATORS = 2;
+	// peak number of operator shifts that overlap at once (see holzkirchenRemoteGuidanceShifts.xml: a morning pair and
+	// an afternoon/evening pair, staggered so at the hand-over edges up to three operators are on duty simultaneously).
+	// The concurrency invariants below are bounded by the SIMULTANEOUS operators, not the total shift count.
+	private static final int MAX_CONCURRENT_OPERATORS = 3;
 
 	@Test
 	void test() {
@@ -213,8 +217,8 @@ public class RunRemoteGuidanceDrtScenarioIT {
 
 		// at least some vehicles must have been activated under operators
 		assertThat(tracker.totalAssignments).isPositive();
-		// concurrent supervised vehicles must never exceed the combined operator capacity
-		assertThat(tracker.maxConcurrent).isLessThanOrEqualTo(NUMBER_OF_OPERATORS * OPERATOR_CAPACITY);
+		// concurrent supervised vehicles must never exceed the combined capacity of the simultaneously on-duty operators
+		assertThat(tracker.maxConcurrent).isLessThanOrEqualTo(MAX_CONCURRENT_OPERATORS * OPERATOR_CAPACITY);
 
 		// incidents must be generated, assigned and resolved
 		assertThat(incidentTracker.started).isPositive();
@@ -222,8 +226,8 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		// lifecycle ordering: assigned ⊆ started, resolved ⊆ assigned (a few may still be queued/in-service at run end)
 		assertThat(incidentTracker.assigned).isLessThanOrEqualTo(incidentTracker.started);
 		assertThat(incidentTracker.resolved).isLessThanOrEqualTo(incidentTracker.assigned);
-		// at most NUMBER_OF_OPERATORS incidents in service at once (one incident occupies exactly one operator)
-		assertThat(incidentTracker.maxConcurrentInService).isLessThanOrEqualTo(NUMBER_OF_OPERATORS);
+		// at most MAX_CONCURRENT_OPERATORS incidents in service at once (one incident occupies exactly one operator)
+		assertThat(incidentTracker.maxConcurrentInService).isLessThanOrEqualTo(MAX_CONCURRENT_OPERATORS);
 	}
 
 	/**
