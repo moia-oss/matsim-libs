@@ -121,6 +121,7 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 
 	private static final String NA = "NA";
 	private static final String COMBINED = "all";
+	private static final String INCIDENT_HOTSPOT_LAYER = "incident_hotspots";
 
 	public RemoteGuidanceAnalysisControlerListener(DrtConfigGroup drtConfigGroup,
 												   RemoteGuidanceAnalysisTracker tracker,
@@ -471,7 +472,7 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		if (!features.isEmpty()) {
 			String fileName = matsimServices.getControllerIO()
 					.getOutputFilename("drt_remoteGuidance_" + drtConfigGroup.getMode() + ".gpkg");
-			GeoFileWriter.writeGeometries(features, fileName, new NameImpl("incident_hotspots"));
+			GeoFileWriter.writeGeometries(features, fileName, new NameImpl(INCIDENT_HOTSPOT_LAYER));
 		}
 	}
 
@@ -502,7 +503,10 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 					+ "Will not create the remote guidance incident hotspot GeoPackage.", crs);
 			return List.of();
 		}
-		typeBuilder.setName("rgIncidentHotspot");
+		// the feature type name must match the GeoPackage layer name passed to GeoFileWriter.writeGeometries (the writer
+		// creates the schema under the feature type name and then opens the layer by the given name), otherwise it fails
+		// with "Schema 'incident_hotspots' does not exist".
+		typeBuilder.setName(INCIDENT_HOTSPOT_LAYER);
 		// note: GeoPackage/shp column names are truncated at 10 chars, keep them short.
 		typeBuilder.add("the_geom", Point.class);
 		typeBuilder.add("link", String.class);
