@@ -28,7 +28,6 @@ import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftImpl;
-import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftSpecificationImpl;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftsSpecification;
 import org.matsim.contrib.drt.schedule.DrtStayTask;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
@@ -101,9 +100,6 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	// runtime state, (re)initialized on each initialSchedule() (i.e. per iteration)
 	private Map<Id<DrtShift>, Id<DvrpVehicle>> liveVirtualShifts;
-	// virtual shifts that became live (and thus were registered in the shift specification so that they can be
-	// analysed like regular shifts); kept across iterations only to purge them at the start of the next one.
-	private final Set<Id<DrtShift>> registeredVirtualSpecs = new HashSet<>();
 	private long virtualShiftCounter;
 	// the "simulation horizon" end assigned to every virtual shift (D16). Lazily derived from the fleet on the first
 	// schedule() call as (minimum service end time − changeover duration). A virtual shift has a discretionary end
@@ -132,14 +128,9 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	@Override
 	public ImmutableMap<Id<DrtShift>, DrtShift> initialSchedule() {
-		// purge any virtual shift specifications registered during the previous iteration, so that they are neither
-		// reloaded as initial shifts by the delegate nor accumulated across iterations.
-		for (Id<DrtShift> virtualSpecId : registeredVirtualSpecs) {
-			delegate.get().removeShiftSpecification(virtualSpecId);
-		}
-		registeredVirtualSpecs.clear();
-
-		// (re)init runtime state for this iteration
+		// (re)init runtime state for this iteration. Virtual shifts are purely transient (they exist only in the QSim
+		// lifecycle via liveVirtualShifts + the activation/deactivation events); they are deliberately NOT written into
+		// the persistent shift specification, so there is nothing to purge across iterations and no id can collide.
 		liveVirtualShifts = new HashMap<>();
 		virtualShiftCounter = 0;
 		// clear the operators' per-iteration runtime lifecycle (released / incident-busy / effective end): the state
@@ -284,7 +275,6 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// newly activated: live now but not tracked before
 		for (Map.Entry<Id<DrtShift>, Id<DvrpVehicle>> entry : currentlyLive.entrySet()) {
 			if (!liveVirtualShifts.containsKey(entry.getKey())) {
-				registerVirtualShiftSpec(entry.getKey());
 				eventsManager.processEvent(new VehicleActivatedForRemoteGuidanceEvent(now, mode, entry.getValue()));
 			}
 		}
@@ -316,22 +306,6 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// committedEnd = false (D21): the horizon end is discretionary, so startShift materialises NO changeover/wait
 		// tail — the vehicle stays in service on a plain stay until a recall lazily materialises the end.
 		return new DrtShiftImpl(id, now, virtualShiftEndTime, null, null, null, VIRTUAL_SHIFT_TYPE, false);
-	}
-
-	/**
-	 * Registers a live virtual shift in the shared shift specification so that downstream analyses (shift duration,
-	 * efficiency, dumps) can resolve it like any regular shift. The spec is kept until the next iteration, where it is
-	 * purged in {@link #initialSchedule()}.
-	 */
-	private void registerVirtualShiftSpec(Id<DrtShift> shiftId) {
-		if (registeredVirtualSpecs.add(shiftId)) {
-			delegate.get().addShiftSpecification(DrtShiftSpecificationImpl.newBuilder()
-					.id(shiftId)
-					.start(0)
-					.end(virtualShiftEndTime)
-					.type(VIRTUAL_SHIFT_TYPE)
-					.build());
-		}
 	}
 
 	private boolean isOperatorShift(DrtShift shift) {
