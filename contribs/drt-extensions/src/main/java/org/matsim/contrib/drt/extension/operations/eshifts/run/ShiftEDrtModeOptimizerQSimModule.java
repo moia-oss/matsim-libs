@@ -14,8 +14,8 @@ import org.matsim.contrib.drt.extension.operations.operationFacilities.Operation
 import org.matsim.contrib.drt.extension.operations.shifts.config.ShiftsParams;
 import org.matsim.contrib.drt.extension.operations.shifts.optimizer.ShiftVehicleDataEntryFactory;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.DrtOperationsActionCreator;
+import org.matsim.contrib.drt.extension.operations.shifts.schedule.DrtOperationsTaskFactoryImpl;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.DrtOperationsTaskFactory;
-import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftDrtTaskFactory;
 import org.matsim.contrib.drt.extension.operations.shifts.scheduler.ShiftTaskScheduler;
 import org.matsim.contrib.drt.extension.operations.shifts.scheduler.ShiftTaskSchedulerImpl;
 import org.matsim.contrib.drt.optimizer.StopWaypointFactory;
@@ -66,16 +66,16 @@ public class ShiftEDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule
                         drtShiftParams.isConsiderUpcomingShiftsForInsertion()))).asEagerSingleton();
 
 		bindModal(DrtTaskFactory.class).toProvider(modalProvider(getter ->
-						new DrtOperationsTaskFactory(new EDrtTaskFactoryImpl(),
+						new DrtOperationsTaskFactoryImpl(new EDrtTaskFactoryImpl(),
 								getter.getModal(OperationFacilities.class),
 								getter.getModal(OperationFacilityReservationManager.class))))
 				.in(Singleton.class);
-		bindModal(ShiftDrtTaskFactory.class).toProvider(modalProvider(getter -> ((ShiftDrtTaskFactory) getter.getModal(DrtTaskFactory.class))));
+		bindModal(DrtOperationsTaskFactory.class).toProvider(modalProvider(getter -> ((DrtOperationsTaskFactory) getter.getModal(DrtTaskFactory.class))));
 
 		bindModal(ShiftTaskScheduler.class).toProvider(modalProvider(
 				getter -> new ShiftTaskSchedulerImpl(
 						getter.getModal(OperationFacilities.class),
-						getter.getModal(ShiftDrtTaskFactory.class),
+						getter.getModal(DrtOperationsTaskFactory.class),
 						getter.getModal(Network.class),
 						getter.getModal(OperationFacilityReservationManager.class),
 						drtShiftParams,

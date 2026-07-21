@@ -22,6 +22,7 @@ import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentAssig
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentResolvedEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.events.IncidentStartedEvent;
 import org.matsim.contrib.drt.extension.operations.guidance.schedule.IncidentHoldTask;
+import org.matsim.contrib.drt.extension.operations.shifts.schedule.DrtOperationsTaskFactory;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.schedule.DrtDriveTask;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
@@ -111,6 +112,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 	private final ScheduleTimingUpdater scheduleTimingUpdater;
 	private final Network network;
 	private final TravelTime travelTime;
+	private final DrtOperationsTaskFactory taskFactory;
 	private final LeastCostPathCalculator router;
 
 	private final Random random = MatsimRandom.getLocalInstance();
@@ -130,7 +132,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 	public IncidentDispatcher(String mode, IncidentParams params, RemoteGuidanceOperators operatorRegistry,
 							  RemoteGuidanceOperatorState operatorState, Fleet fleet, EventsManager eventsManager,
 							  MobsimTimer timer, ScheduleTimingUpdater scheduleTimingUpdater, Network network,
-							  TravelTime travelTime) {
+							  TravelTime travelTime, DrtOperationsTaskFactory taskFactory) {
 		this.mode = mode;
 		this.params = params;
 		this.operatorRegistry = operatorRegistry;
@@ -141,6 +143,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 		this.scheduleTimingUpdater = scheduleTimingUpdater;
 		this.network = network;
 		this.travelTime = travelTime;
+		this.taskFactory = taskFactory;
 		this.router = new SpeedyALTFactory().createPathCalculator(network, new TimeAsTravelDisutility(travelTime), travelTime);
 	}
 
@@ -355,14 +358,16 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 		// the hold is kept "just past now" and pushed forward step by step (see extendQueuedHolds) until assigned. We
 		// deliberately do NOT use a far-future end — that would push a shift vehicle's trailing WaitForShiftTask past
 		// its service end and trip the timing verifier.
-		IncidentHoldTask holdTask = new IncidentHoldTask(holdBegin, holdBegin + 1, diversionPoint.link);
+		IncidentHoldTask holdTask = taskFactory.createIncidentHoldTask(vehicle, holdBegin, holdBegin + 1, diversionPoint.link);
 		int holdIdx = driveTask.getTaskIdx() + 1;
 		schedule.addTask(holdIdx, holdTask);
 
-		// continuation DRIVE diversion link → original destination, departing at the (current, open) hold end
+		// continuation DRIVE diversion link → original destination, departing at the (current, open) hold end. Created
+		// via the task factory so the electric fleet gets the energy-tracking EDrtDriveTask variant (the eDRT data-entry
+		// factory casts every task to ETask); the non-electric factory returns a plain DrtDriveTask.
 		VrpPathWithTravelData continuation = VrpPaths.calcAndCreatePath(diversionPoint.link, destination,
 				holdTask.getEndTime(), router, travelTime);
-		schedule.addTask(holdIdx + 1, new DrtDriveTask(continuation, DrtDriveTask.TYPE));
+		schedule.addTask(holdIdx + 1, taskFactory.createDriveTask(vehicle, continuation, DrtDriveTask.TYPE));
 
 		// fix downstream timings from the continuation drive onward (the original tasks after B shift back)
 		scheduleTimingUpdater.updateTimingsStartingFromTaskIdx(vehicle, holdIdx + 1, holdTask.getEndTime());

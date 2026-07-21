@@ -16,6 +16,7 @@ import org.matsim.contrib.drt.schedule.DrtStopTask;
 import org.matsim.contrib.drt.schedule.DrtTaskType;
 import org.matsim.contrib.dvrp.optimizer.Request;
 import org.matsim.contrib.dvrp.schedule.DefaultStayTask;
+import org.matsim.contrib.evrp.ETask;
 
 import java.util.Collections;
 import java.util.Map;
@@ -36,15 +37,34 @@ import static org.matsim.contrib.drt.schedule.DrtTaskBaseType.STOP;
  * until {@link #getEndTime()}. Passenger boarding/alighting is not possible during a hold, so the request mutators
  * throw; the {@code calc*} time-window methods return permissive bounds (the hold's timing is defined solely by its
  * begin/end times), mirroring {@code WaitForShiftTask}.
+ * <p>
+ * Like the other operations stay-type tasks ({@code WaitForShiftTask}, {@code ShiftBreakTaskImpl}), this is a
+ * <em>unified</em> task usable in both the standard and the electric (eDRT) fleet: it implements {@link ETask} directly
+ * so the eDRT energy bookkeeping (which casts every scheduled task to {@link ETask}) works without a separate electric
+ * subclass. A held vehicle is stationary, so there is no drive energy; only time-dependent auxiliary consumption over
+ * the hold accrues. The consumed energy is supplied by the creator (the incident dispatcher), which knows the vehicle's
+ * auxiliary consumption model; it defaults to 0 for the non-electric case, where the value is simply ignored.
  *
  * @author nkuehnel / MOIA
  */
-public class IncidentHoldTask extends DefaultStayTask implements DrtStopTask, OperationalStop {
+public class IncidentHoldTask extends DefaultStayTask implements DrtStopTask, OperationalStop, ETask {
 
 	public static final DrtTaskType TYPE = new DrtTaskType("INCIDENT_HOLD", STOP);
 
+	private final double consumedEnergy;
+
 	public IncidentHoldTask(double beginTime, double endTime, Link link) {
+		this(beginTime, endTime, link, 0.0);
+	}
+
+	public IncidentHoldTask(double beginTime, double endTime, Link link, double consumedEnergy) {
 		super(TYPE, beginTime, endTime, link);
+		this.consumedEnergy = consumedEnergy;
+	}
+
+	@Override
+	public double getTotalEnergy() {
+		return consumedEnergy;
 	}
 
 	@Override

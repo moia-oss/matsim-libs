@@ -16,7 +16,7 @@ import org.matsim.contrib.drt.extension.operations.shifts.optimizer.ShiftBreakSt
 import org.matsim.contrib.drt.extension.operations.shifts.optimizer.ShiftChangeoverStopWaypoint;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftBreakTask;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftChangeOverTask;
-import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftDrtTaskFactory;
+import org.matsim.contrib.drt.extension.operations.shifts.schedule.DrtOperationsTaskFactory;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftBreak;
@@ -64,7 +64,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
 
     private final static Logger logger = LogManager.getLogger(ShiftTaskSchedulerImpl.class);
 
-    private final ShiftDrtTaskFactory taskFactory;
+    private final DrtOperationsTaskFactory taskFactory;
     private final OperationFacilities facilities;
     private final Network network;
     private final OperationFacilityReservationManager facilityReservationManager;
@@ -84,7 +84,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
      */
     public ShiftTaskSchedulerImpl(
             OperationFacilities operationFacilities,
-            ShiftDrtTaskFactory taskFactory, 
+            DrtOperationsTaskFactory taskFactory, 
             Network network,
             OperationFacilityReservationManager facilityReservationManager,
             ShiftsParams shiftsParams, 
@@ -103,7 +103,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
      */
     public ShiftTaskSchedulerImpl(
             OperationFacilities operationFacilities,
-            ShiftDrtTaskFactory taskFactory, 
+            DrtOperationsTaskFactory taskFactory, 
             Network network,
             OperationFacilityReservationManager facilityReservationManager,
             ShiftsParams shiftsParams, 
