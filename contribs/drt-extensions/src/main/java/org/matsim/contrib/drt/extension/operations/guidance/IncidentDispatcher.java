@@ -99,6 +99,17 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 
 	private static final Logger logger = LogManager.getLogger(IncidentDispatcher.class);
 
+	// Placeholder step [s] by which a still-queued incident hold is pushed forward each time its end catches up with now.
+	// This value carries NO physical meaning and does not affect the reported timing of any incident: while an incident
+	// waits in the operator queue its true end is unknown, and the moment an operator is assigned assignQueuedIncidents()
+	// fixes the hold end to the exact service end (with a full re-propagation). The push exists only so the HOLD stop
+	// activity does not run out while the vehicle waits. Each push triggers a schedule-tail re-propagation, so a 1 s step
+	// makes it O(sim steps × queued vehicles) — the dominant cost in the rho >= 1 regime (a8/a16 ran 4-5.5 h vs 0.3 h for
+	// the drained cases). Coarsening to 60 s cuts those re-propagations ~60x with no loss of accuracy: assignQueuedIncidents()
+	// runs every step and immediately overrides the placeholder with the exact service end when an operator frees up, so
+	// the bump granularity never delays an assignment — it only controls how often a still-waiting hold is nudged past now.
+	private static final double QUEUED_HOLD_EXTENSION_STEP = 60.0;
+
 	private final String mode;
 	private final IncidentParams params;
 	private final RemoteGuidanceOperators operatorRegistry;
@@ -374,11 +385,15 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 		return holdTask;
 	}
 
-	/** Keeps still-queued vehicles standing: pushes each unassigned hold's end just past {@code now}. */
+	/**
+	 * Keeps still-queued vehicles standing: pushes each unassigned hold's end past {@code now} whenever it has caught up.
+	 * The push is a placeholder (the real end is set on assignment), so it is coarsened to {@link #QUEUED_HOLD_EXTENSION_STEP}
+	 * to avoid a per-second schedule-tail re-propagation for every queued vehicle — the dominant cost under queue saturation.
+	 */
 	private void extendQueuedHolds(double now) {
 		for (Incident incident : queue) {
 			if (incident.holdTask.getEndTime() <= now) {
-				setHoldEnd(incident, now + 1);
+				setHoldEnd(incident, now + QUEUED_HOLD_EXTENSION_STEP);
 			}
 		}
 	}

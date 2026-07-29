@@ -27,6 +27,11 @@ package org.matsim.contrib.drt.extension.operations.guidance.activation;
  *                            hard upper bound on the active count.
  * @param idleAtHub           number of out-of-service vehicles waiting at a hub (activation source).
  * @param idleInService       number of active vehicles idle in service with no committed work (ready buffer).
+ * @param smoothedBusy        the busy vehicle count {@code active − idleInService} smoothed over a trailing window — its
+ *                            trailing <em>maximum</em>, fed by {@code BusyWindowTracker} when a busy window is configured
+ *                            (else exactly the instantaneous {@code activeCount − idleInService}). The demand-load signal
+ *                            {@code IdleBufferActivation} sizes its buffer on top of; using the trailing peak instead of
+ *                            the instantaneous value damps the peak-demand activation sawtooth (see {@code BusyWindowTracker}).
  * @param recentRejectionRate the recent request-rejection rate {@code rejected / (rejected + scheduled)} over a trailing
  *                            window, fed by {@code RejectionRateTracker} when {@code rejectionActivation} is configured
  *                            (else 0.0). The demand-pressure signal read by {@code RejectionRateActivation}.
@@ -34,5 +39,15 @@ package org.matsim.contrib.drt.extension.operations.guidance.activation;
  * @author nkuehnel / MOIA
  */
 public record GuidanceState(int activeCount, int activationCapacity, int idleAtHub, int idleInService,
-							double recentRejectionRate) {
+							int smoothedBusy, double recentRejectionRate) {
+
+	/**
+	 * Convenience constructor for the un-smoothed case: {@code smoothedBusy} defaults to the instantaneous busy count
+	 * {@code activeCount − idleInService}, i.e. no window smoothing. Used by the disabled-window runtime path and the
+	 * unit tests so behaviour is byte-identical to before the busy-window seam was added.
+	 */
+	public GuidanceState(int activeCount, int activationCapacity, int idleAtHub, int idleInService,
+						 double recentRejectionRate) {
+		this(activeCount, activationCapacity, idleAtHub, idleInService, activeCount - idleInService, recentRejectionRate);
+	}
 }

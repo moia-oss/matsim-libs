@@ -47,7 +47,7 @@ import static org.matsim.contrib.drt.schedule.DrtTaskBaseType.STOP;
  *
  * @author nkuehnel / MOIA
  */
-public class IncidentHoldTask extends DefaultStayTask implements DrtStopTask, OperationalStop, ETask {
+public class IncidentHoldTask extends DefaultStayTask implements DrtStopTask, ETask {
 
 	public static final DrtTaskType TYPE = new DrtTaskType("INCIDENT_HOLD", STOP);
 

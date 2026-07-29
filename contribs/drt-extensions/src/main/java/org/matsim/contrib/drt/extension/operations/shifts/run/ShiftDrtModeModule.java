@@ -8,6 +8,7 @@ import com.google.inject.TypeLiteral;
 import org.matsim.contrib.common.timeprofile.ProfileWriter;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.guidance.BusyWindowTracker;
 import org.matsim.contrib.drt.extension.operations.guidance.RejectionRateTracker;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperatorState;
@@ -123,12 +124,19 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 						new RejectionRateTracker(getMode(), rejectionParams.getWindowSize()));
 				addEventHandlerBinding().to(modalKey(RejectionRateTracker.class));
 			});
+			// trailing-window busy smoother shared by both margins (like the rejection tracker above). Always bound: a
+			// window of 0 makes it a pass-through (smoothedBusy == instantaneous busy), so the default is unchanged
+			// behaviour. Not an event handler — it is sampled directly by the two margins each step and self-resets on
+			// the backwards time jump at an iteration boundary.
+			bindModal(BusyWindowTracker.class).toInstance(
+					new BusyWindowTracker(remoteGuidanceParams.getBusyWindowSize()));
 			boolean hasRejectionActivation = remoteGuidanceParams.getRejectionActivationParams().isPresent();
 			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> RemoteGuidanceScheduler.create(
 					drtShiftsSpecification, getter.getModal(RemoteGuidanceOperators.class),
 					getter.getModal(RemoteGuidanceOperatorState.class), remoteGuidanceParams,
 					getter.get(EventsManager.class), getMode(), shiftsParams.getChangeoverDuration(),
-					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null)));
+					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null,
+					getter.getModal(BusyWindowTracker.class))));
 		} else {
 			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> new DefaultShiftScheduler(drtShiftsSpecification)));
 		}

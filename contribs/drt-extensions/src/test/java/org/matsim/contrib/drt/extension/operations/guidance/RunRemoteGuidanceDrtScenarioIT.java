@@ -66,6 +66,46 @@ public class RunRemoteGuidanceDrtScenarioIT {
 
 	@Test
 	void test() {
+		Trackers trackers = runScenario(1e-4, "test/output/RunRemoteGuidanceDrtScenarioIT");
+
+		// at least some vehicles must have been activated under operators
+		assertThat(trackers.tracker.totalAssignments).isPositive();
+		// concurrent supervised vehicles must never exceed the combined capacity of the simultaneously on-duty operators
+		assertThat(trackers.tracker.maxConcurrent).isLessThanOrEqualTo(MAX_CONCURRENT_OPERATORS * OPERATOR_CAPACITY);
+
+		// incidents must be generated, assigned and resolved
+		assertThat(trackers.incidentTracker.started).isPositive();
+		assertThat(trackers.incidentTracker.resolved).isPositive();
+		// lifecycle ordering: assigned ⊆ started, resolved ⊆ assigned (a few may still be queued/in-service at run end)
+		assertThat(trackers.incidentTracker.assigned).isLessThanOrEqualTo(trackers.incidentTracker.started);
+		assertThat(trackers.incidentTracker.resolved).isLessThanOrEqualTo(trackers.incidentTracker.assigned);
+		// at most MAX_CONCURRENT_OPERATORS incidents in service at once (one incident occupies exactly one operator)
+		assertThat(trackers.incidentTracker.maxConcurrentInService).isLessThanOrEqualTo(MAX_CONCURRENT_OPERATORS);
+	}
+
+	/**
+	 * Regression guard for the high-λ insertion crash (matsim-moia service-degradation run, Σλ=5e-4/m): an
+	 * {@link org.matsim.contrib.drt.extension.operations.guidance.schedule.IncidentHoldTask} spliced mid-drive became a
+	 * regular insertion waypoint, and {@code DefaultRequestInsertionScheduler.insertDropoff}/{@code removeBetween} threw
+	 * "Invalid schedule structure: expected WAIT or DRIVE task". Dormant at the low λ of {@link #test()}; a 10× rate makes
+	 * incidents frequent enough that a hold reliably coincides with an insertion pass. With
+	 * {@link org.matsim.contrib.drt.extension.operations.guidance.optimizer.IncidentAwareVehicleDataEntryFactory} in place
+	 * the run must simply complete without throwing.
+	 */
+	@Test
+	void highLambdaDoesNotCrashInsertion() {
+		// completing the mobsim without an insertion-scheduler exception IS the assertion; the trackers only confirm the
+		// high rate actually produced (and worked through) plenty of incidents.
+		Trackers trackers = runScenario(1e-3, "test/output/RunRemoteGuidanceDrtScenarioIT_highLambda");
+
+		assertThat(trackers.incidentTracker.started).isPositive();
+		assertThat(trackers.incidentTracker.resolved).isPositive();
+	}
+
+	private record Trackers(ConcurrencyTracker tracker, IncidentTracker incidentTracker) {
+	}
+
+	private Trackers runScenario(double lambdaPerMeter, String outputDirectory) {
 		MultiModeDrtConfigGroup multiModeDrtConfigGroup = new MultiModeDrtConfigGroup(DrtWithExtensionsConfigGroup::new);
 
 		String fleetFile = "holzkirchenFleet.xml";
@@ -157,7 +197,7 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		config.controller().setLastIteration(0);
 		config.controller().setWriteEventsInterval(1);
 		config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
-		config.controller().setOutputDirectory("test/output/RunRemoteGuidanceDrtScenarioIT");
+		config.controller().setOutputDirectory(outputDirectory);
 
 		DrtOperationsParams operationsParams = (DrtOperationsParams) drtCfg.createParameterSet(DrtOperationsParams.SET_NAME);
 		ShiftsParams shiftsParams = (ShiftsParams) operationsParams.createParameterSet(ShiftsParams.SET_NAME);
@@ -175,12 +215,12 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		remoteGuidanceParams.setDefaultOperatorCapacity(OPERATOR_CAPACITY);
 		remoteGuidanceParams.setMinRemainingShiftTimeForActivation(0);
 
-		// stochastic incidents: one severity class, ~0.1 incidents/veh-km, ~5 min median handling time. High enough
-		// that the small scenario reliably produces incidents (exercises hold + M/M/m queue).
+		// stochastic incidents: one severity class, ~5 min median handling time. The per-metre hazard is parameterised so
+		// the same scenario can be driven at the default low rate and at a much higher one (high-λ crash regression).
 		IncidentParams incidentParams = (IncidentParams) remoteGuidanceParams.createParameterSet(IncidentParams.SET_NAME);
 		IncidentSeverityParams severityParams = (IncidentSeverityParams) incidentParams.createParameterSet(IncidentSeverityParams.SET_NAME);
 		severityParams.setSeverityName("default");
-		severityParams.setLambdaPerMeter(1e-4);
+		severityParams.setLambdaPerMeter(lambdaPerMeter);
 		severityParams.setDurationMu(Math.log(300));
 		severityParams.setDurationSigma(0.5);
 		incidentParams.addParameterSet(severityParams);
@@ -215,19 +255,7 @@ public class RunRemoteGuidanceDrtScenarioIT {
 
 		controler.run();
 
-		// at least some vehicles must have been activated under operators
-		assertThat(tracker.totalAssignments).isPositive();
-		// concurrent supervised vehicles must never exceed the combined capacity of the simultaneously on-duty operators
-		assertThat(tracker.maxConcurrent).isLessThanOrEqualTo(MAX_CONCURRENT_OPERATORS * OPERATOR_CAPACITY);
-
-		// incidents must be generated, assigned and resolved
-		assertThat(incidentTracker.started).isPositive();
-		assertThat(incidentTracker.resolved).isPositive();
-		// lifecycle ordering: assigned ⊆ started, resolved ⊆ assigned (a few may still be queued/in-service at run end)
-		assertThat(incidentTracker.assigned).isLessThanOrEqualTo(incidentTracker.started);
-		assertThat(incidentTracker.resolved).isLessThanOrEqualTo(incidentTracker.assigned);
-		// at most MAX_CONCURRENT_OPERATORS incidents in service at once (one incident occupies exactly one operator)
-		assertThat(incidentTracker.maxConcurrentInService).isLessThanOrEqualTo(MAX_CONCURRENT_OPERATORS);
+		return new Trackers(tracker, incidentTracker);
 	}
 
 	/**

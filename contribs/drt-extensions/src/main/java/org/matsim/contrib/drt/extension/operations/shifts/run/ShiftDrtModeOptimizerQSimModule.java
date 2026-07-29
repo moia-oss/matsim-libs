@@ -5,8 +5,10 @@ import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.operations.guidance.IncidentDispatcher;
+import org.matsim.contrib.drt.extension.operations.guidance.optimizer.IncidentAwareVehicleDataEntryFactory;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceOperatorState;
+import org.matsim.contrib.drt.extension.operations.guidance.BusyWindowTracker;
 import org.matsim.contrib.drt.extension.operations.guidance.RejectionRateTracker;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceScheduler;
 import org.matsim.contrib.drt.extension.operations.guidance.RemoteGuidanceShiftEndLogic;
@@ -120,7 +122,8 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 			bindModal(ShiftEndLogic.class).toProvider(modalProvider(getter -> new RemoteGuidanceShiftEndLogic(
 					getter.getModal(Fleet.class), getter.getModal(RemoteGuidanceOperators.class), idleTimeout,
 					recallLeadTime, reconciler,
-					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null)));
+					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null,
+					getter.getModal(BusyWindowTracker.class))));
 		} else {
 			bindModal(ShiftEndLogic.class).toInstance(ShiftEndLogic.NEVER);
 		}
@@ -156,10 +159,17 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 						new DefaultInsertionCostCalculator(getter.getModal(CostCalculationStrategy.class),
 								drtCfg.addOrGetDrtOptimizationConstraintsParams().addOrGetDefaultDrtOptimizationConstraintsSet()))));
 
+		// when stochastic incidents are enabled, wrap the entry factory so vehicles currently held by an incident are
+		// taken out of the insertion pool entirely (an IncidentHoldTask spliced mid-drive is not a valid insertion
+		// waypoint and would otherwise trip the core scheduler's removeBetween verifier).
+		boolean hasIncidents = drtOperationsParams.getRemoteGuidanceParams()
+				.flatMap(RemoteGuidanceParams::getIncidentParams).isPresent();
 		bindModal(VehicleEntry.EntryFactory.class).toProvider(modalProvider(getter -> {
 			DvrpLoadType loadType = getter.getModal(DvrpLoadType.class);
-			return new ShiftVehicleDataEntryFactory(new VehicleDataEntryFactoryImpl(loadType, getter.getModal(StopWaypointFactory.class)),
+			VehicleEntry.EntryFactory factory = new ShiftVehicleDataEntryFactory(
+					new VehicleDataEntryFactoryImpl(loadType, getter.getModal(StopWaypointFactory.class)),
 					shiftsParams.isConsiderUpcomingShiftsForInsertion());
+			return hasIncidents ? new IncidentAwareVehicleDataEntryFactory(factory) : factory;
 		}));
 
 		bindModal(DrtTaskFactory.class).toProvider(modalProvider(getter ->  new DrtOperationsTaskFactoryImpl(

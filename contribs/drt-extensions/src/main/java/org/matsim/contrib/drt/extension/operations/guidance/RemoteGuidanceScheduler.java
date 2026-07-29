@@ -25,6 +25,7 @@ import org.matsim.contrib.drt.extension.operations.guidance.events.VehicleDeacti
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DefaultShiftScheduler;
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.ShiftScheduler;
 import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle;
+import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftSchedules;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftImpl;
@@ -97,6 +98,9 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	// nullable: the demand-pressure source for the RejectionRateActivation trigger; null when no rejection-activation
 	// config is present (then recentRejectionRate stays 0.0 and the trigger, if somehow present, never fires).
 	private final RejectionRateTracker rejectionRateTracker;
+	// the trailing-window busy-count smoother shared with the deactivation side. A window of 0 makes it a pass-through
+	// (smoothedBusy == instantaneous busy), so behaviour is unchanged when the busy window is disabled.
+	private final BusyWindowTracker busyWindowTracker;
 
 	// runtime state, (re)initialized on each initialSchedule() (i.e. per iteration)
 	private Map<Id<DrtShift>, Id<DvrpVehicle>> liveVirtualShifts;
@@ -114,7 +118,8 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceOperators operators,
 								   RemoteGuidanceOperatorState operatorState, RemoteGuidanceParams params,
 								   EventsManager eventsManager, String mode, double changeoverDuration,
-								   ActivationReconciler activationReconciler, RejectionRateTracker rejectionRateTracker) {
+								   ActivationReconciler activationReconciler, RejectionRateTracker rejectionRateTracker,
+								   BusyWindowTracker busyWindowTracker) {
 		this.delegate = delegate;
 		this.operators = operators;
 		this.operatorState = operatorState;
@@ -124,6 +129,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		this.changeoverDuration = changeoverDuration;
 		this.activationReconciler = activationReconciler;
 		this.rejectionRateTracker = rejectionRateTracker;
+		this.busyWindowTracker = busyWindowTracker;
 	}
 
 	@Override
@@ -189,8 +195,13 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// them and clamps to the hard floor + the activation ceiling Σκ. The ceiling uses the PLANNED-window capacity
 		// (not coverage): a winding-down operator retained past its planned end must not pull new vehicles in.
 		double rejectionRate = rejectionRateTracker == null ? 0.0 : rejectionRateTracker.rejectionRate(now);
+		// busy counts only STARTED virtual vehicles doing passenger work — NOT the queue-membership activeCount below.
+		// A replacement shift assigned to a still-recalling vehicle at end of day is live (so activeCount does not
+		// re-emit it) but not yet started; feeding it into busy would re-inflate the target and re-run the runaway.
+		int busy = busy(idleCounts.startedVirtual(), idleCounts.idleInService(), idleCounts.leaving());
+		int smoothedBusy = busyWindowTracker.sample(now, busy);
 		GuidanceState state = new GuidanceState(liveVirtualShifts.size(), operators.activationCapacityAt(now),
-				idleCounts.idleAtHub(), idleCounts.idleInService(), rejectionRate);
+				idleCounts.idleAtHub(), idleCounts.idleInService(), smoothedBusy, rejectionRate);
 		int toEmit = activationReconciler.toEmit(state, now);
 		for (int i = 0; i < toEmit; i++) {
 			emitted.add(createVirtualShift(now));
@@ -198,8 +209,37 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		return emitted;
 	}
 
-	/** The two D19 idle counts collected during the fleet scan: idle-at-hub (activation source) + idle-in-service (buffer). */
-	private record IdleCounts(int idleAtHub, int idleInService) {}
+	/**
+	 * Counts collected during the single fleet scan: idle-at-hub (activation source), idle-in-service (ready buffer),
+	 * leaving (live virtual vehicles already recalled and routing home — a materialised changeover tail), and
+	 * startedVirtual (vehicles with an actually-started virtual shift). {@code leaving} is excluded from busy so a
+	 * winding-down vehicle does not trigger a replacement activation. {@code startedVirtual} is the base for busy
+	 * (passenger-work capacity), deliberately narrower than the queue-membership {@code activeCount}: an end-of-day
+	 * replacement shift assigned to a still-recalling vehicle is live (counted in activeCount so it is not re-emitted)
+	 * but not yet started, so it must not inflate busy.
+	 */
+	private record IdleCounts(int idleAtHub, int idleInService, int leaving, int startedVirtual) {}
+
+	/**
+	 * The busy count fed into the shared {@link BusyWindowTracker}: STARTED virtual vehicles doing passenger work, i.e.
+	 * neither idle-in-service (ready buffer) nor {@code leaving} (already recalled, routing home on a materialised
+	 * changeover tail).
+	 * <p>
+	 * Two exclusions, both load-bearing against the end-of-day recall/re-activate runaway:
+	 * <ul>
+	 *     <li>{@code startedVirtual} (not the queue-membership activeCount) is the base: a replacement shift assigned to
+	 *         a still-recalling vehicle is live (counted in activeCount so it is not re-emitted) but its vehicle is not
+	 *         doing passenger work, so it must not count as busy.</li>
+	 *     <li>{@code leaving} is subtracted: a recalled vehicle is not idle-in-service (its last task is no longer a stay
+	 *         task) yet it is winding down, not busy — counting it as busy would re-activate a replacement for a vehicle
+	 *         that is going home.</li>
+	 * </ul>
+	 * {@link RemoteGuidanceShiftEndLogic} computes busy over an active set of started, non-leaving vehicles too; both
+	 * margins feed the same tracker, so they must agree on this signal. Pure arithmetic, package-private for unit testing.
+	 */
+	static int busy(int startedVirtual, int idleInService, int leaving) {
+		return startedVirtual - idleInService - leaving;
+	}
 
 	/**
 	 * Warns once (at the first schedule call) if the configured {@code minActiveFleet} floor can never be met, because
@@ -237,6 +277,8 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		Map<Id<DrtShift>, Id<DvrpVehicle>> currentlyLive = new HashMap<>();
 		int idleAtHub = 0;
 		int idleInService = 0;
+		int leaving = 0;
+		int startedVirtual = 0;
 		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
 			if (!(vehicle instanceof ShiftDvrpVehicle shiftVehicle)) {
 				continue;
@@ -263,12 +305,25 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 				if (currentTask instanceof WaitForShiftTask) {
 					idleAtHub++;
 				}
-			} else if (startedVirtualShift(shiftVehicle).isPresent()
-					&& currentTask instanceof DrtStayTask
-					&& currentTask.equals(Schedules.getLastTask(schedule))) {
-				// active virtual vehicle truly idle in service (D19: stay task that is the last task) → ready buffer.
-				// keyed on the STARTED virtual shift, not the queue head, which may be a not-yet-started future shift.
-				idleInService++;
+			} else if (startedVirtualShift(shiftVehicle).isPresent()) {
+				// a virtual shift that has actually STARTED (vehicle is supervised and doing/able to do passenger work).
+				// This is deliberately narrower than currentlyLive (queue membership): at end of day a recalled vehicle
+				// still mid-changeover can have a fresh replacement shift ASSIGNED but not yet started — that shift is in
+				// the queue (→ counted live, so activeCount does not re-emit it) but its vehicle is NOT doing passenger
+				// work, so it must not feed busy. busy is computed over startedVirtual, activeCount over currentlyLive.
+				startedVirtual++;
+				if (ShiftSchedules.getNextShiftChangeover(schedule).isPresent()) {
+					// already recalled and routing home: since D21 a virtual shift has no eager tail, so a materialised
+					// changeover can only be a recall's. Such a vehicle is winding down, NOT doing passenger work — it
+					// must not inflate busy (= active − idleInService), or the freed slot is immediately re-activated and
+					// the recall/re-activate loop runs away at end of day. This mirrors RemoteGuidanceShiftEndLogic's
+					// isAlreadyLeaving exclusion so both margins feed the shared BusyWindowTracker the same busy signal.
+					leaving++;
+				} else if (currentTask instanceof DrtStayTask && currentTask.equals(Schedules.getLastTask(schedule))) {
+					// active virtual vehicle truly idle in service (D19: stay task that is the last task) → ready buffer.
+					// keyed on the STARTED virtual shift, not the queue head, which may be a not-yet-started future shift.
+					idleInService++;
+				}
 			}
 		}
 
@@ -295,7 +350,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		}
 
 		liveVirtualShifts = currentlyLive;
-		return new IdleCounts(idleAtHub, idleInService);
+		return new IdleCounts(idleAtHub, idleInService, leaving, startedVirtual);
 	}
 
 	private DrtShift createVirtualShift(double now) {
@@ -348,15 +403,17 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	 *
 	 * @param rejectionRateTracker shared demand-pressure source; {@code null} when no rejection-activation config is
 	 *                             present (then no {@code RejectionRateActivation} is wired).
+	 * @param busyWindowTracker    shared trailing-window busy smoother read by both margins; a window of 0 makes it a
+	 *                             pass-through, so behaviour is unchanged when the busy window is disabled.
 	 */
 	public static RemoteGuidanceScheduler create(DrtShiftsSpecification specification, RemoteGuidanceOperators operators,
 												 RemoteGuidanceOperatorState operatorState, RemoteGuidanceParams params,
 												 EventsManager eventsManager, String mode, double changeoverDuration,
-												 RejectionRateTracker rejectionRateTracker) {
+												 RejectionRateTracker rejectionRateTracker, BusyWindowTracker busyWindowTracker) {
 		ActivationReconciler reconciler = ActivationReconciler.create(params.getActivationPolicy(),
 				params.getMinActiveFleet(), params.getReadyBufferSize(), rejectionThreshold(params));
 		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, operatorState, params,
-				eventsManager, mode, changeoverDuration, reconciler, rejectionRateTracker);
+				eventsManager, mode, changeoverDuration, reconciler, rejectionRateTracker, busyWindowTracker);
 	}
 
 	/**

@@ -75,6 +75,16 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 	private int readyBufferSize = 1;
 
 	@Parameter
+	@Comment("Busy-count smoothing window in [seconds] for the responsiveness buffer. The buffer targets "
+			+ "'smoothedBusy + readyBufferSize' active vehicles; with a window > 0 'smoothedBusy' is the trailing-window "
+			+ "MAXIMUM of the busy count (active - idle-in-service) rather than its instantaneous value. This damps the "
+			+ "peak-demand activate<->recall sawtooth: the target jumps up immediately when demand rises but only decays "
+			+ "after busy has stayed below its recent peak for a full window (an orderly ramp-down). Bind it to the "
+			+ "idle-timeout to read as 'only shed a vehicle once demand has not needed it for a full timeout'. Defaults to "
+			+ "0 (disabled -> instantaneous busy, i.e. unchanged behaviour).")
+	private double busyWindowSize = 0;
+
+	@Parameter
 	@Comment("Proactive recall lead time in [seconds]: vehicles are recalled to a hub already when supervision capacity "
 			+ "will drop within this look-ahead window (e.g. an operator shift ending soon), so they arrive at the hub "
 			+ "in time instead of being caught on the road when capacity actually falls. Defaults to 900.")
@@ -171,6 +181,14 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		this.readyBufferSize = readyBufferSize;
 	}
 
+	public double getBusyWindowSize() {
+		return busyWindowSize;
+	}
+
+	public void setBusyWindowSize(double busyWindowSize) {
+		this.busyWindowSize = busyWindowSize;
+	}
+
 	@Override
 	protected void checkConsistency(Config config) {
 		super.checkConsistency(config);
@@ -178,6 +196,7 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		Verify.verify(minRemainingShiftTimeForActivation >= 0, "minRemainingShiftTimeForActivation must not be negative.");
 		Verify.verify(minActiveFleet >= 0, "minActiveFleet must not be negative.");
 		Verify.verify(readyBufferSize >= 0, "readyBufferSize must not be negative.");
+		Verify.verify(busyWindowSize >= 0, "busyWindowSize must not be negative.");
 		if (activationPolicy == ActivationPolicy.greedy && rejectionActivationParams != null) {
 			LogManager.getLogger(RemoteGuidanceParams.class).warn("A 'rejectionActivation' config is present but "
 					+ "activationPolicy is 'greedy'; the demand-driven rejection trigger is not wired under the greedy "

@@ -75,19 +75,23 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 	// nullable: shared demand-pressure source (same instance the scheduler reads), so both margins see the same
 	// recentRejectionRate and the shared target stays consistent. null when no rejection-activation config is present.
 	private final RejectionRateTracker rejectionRateTracker;
+	// shared trailing-window busy smoother (same instance the scheduler reads), so both margins size the fleet from the
+	// same smoothed busy signal. A window of 0 makes it a pass-through (smoothedBusy == instantaneous busy).
+	private final BusyWindowTracker busyWindowTracker;
 
 	private double lastComputedTime = Double.NaN;
 	private Set<Id<DrtShift>> recallSet = new HashSet<>();
 
 	public RemoteGuidanceShiftEndLogic(Fleet fleet, RemoteGuidanceOperators operators, double idleTimeout,
 									   double recallLeadTime, ActivationReconciler reconciler,
-									   RejectionRateTracker rejectionRateTracker) {
+									   RejectionRateTracker rejectionRateTracker, BusyWindowTracker busyWindowTracker) {
 		this.fleet = fleet;
 		this.operators = operators;
 		this.idleTimeout = idleTimeout;
 		this.recallLeadTime = recallLeadTime;
 		this.reconciler = reconciler;
 		this.rejectionRateTracker = rejectionRateTracker;
+		this.busyWindowTracker = busyWindowTracker;
 	}
 
 	@Override
@@ -194,17 +198,24 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 	 * The shared fleet-sizing target this step: builds a {@link GuidanceState} snapshot and asks the same
 	 * {@link ActivationReconciler#desired} policy the activation side uses, so activation (ramp up to the target) and
 	 * this side (recall down to it) apply one policy and cannot disagree on where the fleet should settle. The two
-	 * snapshots are not byte-identical — this side deliberately excludes vehicles already routing home
-	 * ({@link #isAlreadyLeaving}) from {@code activeCount}, whereas the scheduler counts every live virtual shift — but
-	 * the default policy's target ({@code busy + buffer}, floor) does not depend on that difference. A future trigger
-	 * whose target reads {@code activeCount} directly would need to account for this transient. Uses the PLANNED-window
+	 * snapshots differ in {@code activeCount} — this side excludes vehicles already routing home ({@link #isAlreadyLeaving})
+	 * whereas the scheduler counts every live virtual shift — but both compute {@code busy} over the non-leaving set, so
+	 * the busy signal they feed the shared {@link BusyWindowTracker} agrees. This matters: if the scheduler counted
+	 * leaving vehicles as busy, {@code busy + buffer} would re-activate a replacement for every recalled vehicle and the
+	 * end-of-day recall/re-activate loop would run away. A future trigger whose target reads {@code activeCount} directly
+	 * (rather than {@code busy}) would still need to account for the leaving transient. Uses the PLANNED-window
 	 * ceiling {@code Σκ} at {@code now} (like the scheduler); the separate look-ahead capacity reduction is the
 	 * {@code capacityExceeded} pass.
 	 */
 	private int desiredActiveCount(int activeCount, int idleInService, int idleAtHub, double now) {
 		double rejectionRate = rejectionRateTracker == null ? 0.0 : rejectionRateTracker.rejectionRate(now);
+		// feed this side's busy observation into the shared smoother too and read back the trailing max. Because the
+		// aggregate is a maximum it is robust to both margins sampling per step: this side's activeCount deliberately
+		// excludes already-leaving vehicles (see the class javadoc), so its busy is <= the scheduler's and never lowers
+		// the reported peak.
+		int smoothedBusy = busyWindowTracker.sample(now, activeCount - idleInService);
 		GuidanceState state = new GuidanceState(activeCount, operators.activationCapacityAt(now), idleAtHub,
-				idleInService, rejectionRate);
+				idleInService, smoothedBusy, rejectionRate);
 		return reconciler.desired(state, now);
 	}
 
