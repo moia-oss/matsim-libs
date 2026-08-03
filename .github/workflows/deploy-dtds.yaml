@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: rsync dtds
-        uses: burnett01/rsync-deployments@v8
+        uses: burnett01/rsync-deployments@v9
         with:
           switches: -avz
           path: matsim/src/main/resources/dtd/
