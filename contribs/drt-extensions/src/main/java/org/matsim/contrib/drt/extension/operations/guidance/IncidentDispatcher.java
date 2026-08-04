@@ -303,8 +303,31 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 		return free.get(random.nextInt(free.size())); // RANDOM_FREE (default)
 	}
 
+	/**
+	 * Samples an incident duration [s]. All three families share the SAME mean exp(mu + sigma^2/2) - so the service rate
+	 * is held fixed - and differ only in variability: LOGNORMAL keeps the empirical long tail (SCV = exp(sigma^2)-1),
+	 * EXPONENTIAL is memoryless (SCV = 1, reduces the operator pool to an exact M/M/m queue), DETERMINISTIC is constant
+	 * (SCV = 0, M/D/m). This lets a queueing/Erlang validation vary service-time variability while holding the mean.
+	 */
 	private double sampleDuration(IncidentSeverityParams severityClass) {
-		return Math.exp(severityClass.getDurationMu() + severityClass.getDurationSigma() * random.nextGaussian());
+		return sampleDuration(severityClass.getDurationDistribution(), severityClass.getDurationMu(),
+				severityClass.getDurationSigma(), random);
+	}
+
+	/**
+	 * Pure sampling math, separated from the runtime {@link #random} so it can be exercised deterministically with a
+	 * seeded {@link Random} (see {@code IncidentDurationSamplingTest}). All three families share the SAME mean
+	 * {@code exp(mu + sigma^2/2)} so only the SCV changes; see the caller's javadoc for the queueing rationale.
+	 */
+	static double sampleDuration(IncidentSeverityParams.DurationDistribution distribution, double mu, double sigma,
+								 Random random) {
+		double mean = Math.exp(mu + 0.5 * sigma * sigma);
+		return switch (distribution) {
+			case LOGNORMAL -> Math.exp(mu + sigma * random.nextGaussian());
+			// inverse-CDF of Exponential(1/mean); nextDouble() in [0,1) so 1 - u is in (0,1], avoiding log(0)
+			case EXPONENTIAL -> -mean * Math.log(1.0 - random.nextDouble());
+			case DETERMINISTIC -> mean;
+		};
 	}
 
 	/**

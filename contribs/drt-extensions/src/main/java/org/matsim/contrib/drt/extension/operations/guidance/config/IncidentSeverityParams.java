@@ -14,10 +14,11 @@ import org.matsim.core.config.ReflectiveConfigGroup;
 
 /**
  * One incident severity class, modelled as an independent Poisson process over driven distance: incidents of this class
- * occur at hazard rate {@link #lambdaPerMeter} per metre driven, and each lasts a duration sampled from a log-normal
- * distribution with parameters {@link #durationMu} and {@link #durationSigma} (in log-space, i.e. of the underlying
- * normal). The overall incident process is the superposition of all severity classes, so the classes are fully
- * independent — adding or removing one does not change the others' rates.
+ * occur at hazard rate {@link #lambdaPerMeter} per metre driven, and each lasts a duration sampled from the distribution
+ * selected by {@link #durationDistribution} (log-normal by default) with parameters {@link #durationMu} and
+ * {@link #durationSigma} (in log-space, i.e. of the underlying normal). The overall incident process is the
+ * superposition of all severity classes, so the classes are fully independent — adding or removing one does not change
+ * the others' rates.
  * <p>
  * Severity only affects the incident duration (how long an operator is occupied and the vehicle is held) — it does NOT
  * change how much operator capacity an incident consumes (an incident always occupies exactly one operator, see
@@ -29,6 +30,16 @@ import org.matsim.core.config.ReflectiveConfigGroup;
 public class IncidentSeverityParams extends ReflectiveConfigGroup {
 
 	public static final String SET_NAME = "incidentSeverity";
+
+	/**
+	 * Family of the incident duration distribution. {@link #durationMu} and {@link #durationSigma} always parameterise
+	 * the underlying log-normal; the other families are derived so that the <em>mean</em> duration (hence the service
+	 * <em>rate</em>) is identical across all three, and only the squared coefficient of variation (SCV) differs. This
+	 * makes the choice a controlled experiment on service-time variability alone: {@code LOGNORMAL} has
+	 * SCV = exp(sigma^2)-1, {@code EXPONENTIAL} has SCV = 1 (memoryless, reduces the operator pool to an exact M/M/m
+	 * queue), and {@code DETERMINISTIC} has SCV = 0 (M/D/m). The common mean is exp(mu + sigma^2/2).
+	 */
+	public enum DurationDistribution {LOGNORMAL, EXPONENTIAL, DETERMINISTIC}
 
 	@Parameter
 	@Comment("A human-readable name for this severity class (e.g. 'minor', 'moderate', 'severe'). Optional.")
@@ -51,6 +62,14 @@ public class IncidentSeverityParams extends ReflectiveConfigGroup {
 			+ "class [-]. Must be non-negative; 0 yields a deterministic duration of exp(mu).")
 	@PositiveOrZero
 	private double durationSigma;
+
+	@Parameter
+	@Comment("Family of the incident duration distribution: LOGNORMAL (default), EXPONENTIAL or DETERMINISTIC. All three "
+			+ "share the SAME mean duration exp(mu + sigma^2/2) - hence the same service rate - and differ only in "
+			+ "variability (SCV). EXPONENTIAL reduces the operator pool to an exact M/M/m queue (SCV=1, memoryless); "
+			+ "DETERMINISTIC gives M/D/m (SCV=0); LOGNORMAL keeps the empirical long tail (SCV=exp(sigma^2)-1). Intended "
+			+ "for controlled queueing/Erlang validation while holding the mean fixed.")
+	private DurationDistribution durationDistribution = DurationDistribution.LOGNORMAL;
 
 	public IncidentSeverityParams() {
 		super(SET_NAME);
@@ -86,5 +105,13 @@ public class IncidentSeverityParams extends ReflectiveConfigGroup {
 
 	public void setDurationSigma(double durationSigma) {
 		this.durationSigma = durationSigma;
+	}
+
+	public DurationDistribution getDurationDistribution() {
+		return durationDistribution;
+	}
+
+	public void setDurationDistribution(DurationDistribution durationDistribution) {
+		this.durationDistribution = durationDistribution;
 	}
 }
