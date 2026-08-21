@@ -1,4 +1,4 @@
-package org.matsim.contrib.drt.extension.flexibleTransit.VehicleSelection;
+package org.matsim.contrib.drt.extension.flexibleTransit.vehicleSelection;
 
 import org.matsim.api.core.v01.Id;
 import org.matsim.contrib.drt.extension.flexibleTransit.LineServiceManager;

@@ -2,9 +2,9 @@ package org.matsim.contrib.drt.extension.flexibleTransit;
 
 import org.matsim.api.core.v01.Scenario;
 import org.matsim.api.core.v01.network.Network;
-import org.matsim.contrib.drt.extension.flexibleTransit.VehicleSelection.FlexibleTransitVehicleSelectionStrategy;
-import org.matsim.contrib.drt.extension.flexibleTransit.VehicleSelection.LineServiceInsertionTimeCalculator;
-import org.matsim.contrib.drt.extension.flexibleTransit.VehicleSelection.SelectVehicleWithLeastInsertionCosts;
+import org.matsim.contrib.drt.extension.flexibleTransit.vehicleSelection.FlexibleTransitVehicleSelectionStrategy;
+import org.matsim.contrib.drt.extension.flexibleTransit.vehicleSelection.LineServiceInsertionTimeCalculator;
+import org.matsim.contrib.drt.extension.flexibleTransit.vehicleSelection.SelectVehicleWithLeastInsertionCosts;
 import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.depot.DepotFinder;
 import org.matsim.contrib.drt.optimizer.insertion.CostCalculationStrategy;

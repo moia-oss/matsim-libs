@@ -5,7 +5,7 @@ import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.IdMap;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Network;
-import org.matsim.contrib.drt.extension.flexibleTransit.VehicleSelection.FlexibleTransitVehicleSelectionStrategy;
+import org.matsim.contrib.drt.extension.flexibleTransit.vehicleSelection.FlexibleTransitVehicleSelectionStrategy;
 import org.matsim.contrib.drt.optimizer.VehicleEntry;
 import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
 import org.matsim.contrib.drt.schedule.*;
