@@ -14,7 +14,7 @@ import org.matsim.core.mobsim.framework.MobsimTimer;
 
 public class FixedStopActivityCreator implements VrpAgentLogic.DynActionCreator {
 
-    private final PrebookingActionCreator delegate;
+    private final VrpAgentLogic.DynActionCreator delegate;
     private final EventsManager eventsManager;
 
     private final MobsimTimer timer;
@@ -25,7 +25,7 @@ public class FixedStopActivityCreator implements VrpAgentLogic.DynActionCreator 
     /**
      * Constructor for both standard and electric vehicles
      */
-    public FixedStopActivityCreator(PrebookingActionCreator delegate, EventsManager eventsManager, @NotNull MobsimTimer timer, String mode, LineServiceManager lineServiceManager) {
+    public FixedStopActivityCreator(VrpAgentLogic.DynActionCreator delegate, EventsManager eventsManager, @NotNull MobsimTimer timer, String mode, LineServiceManager lineServiceManager) {
         this.delegate = delegate;
         this.eventsManager = eventsManager;
         this.timer = timer;

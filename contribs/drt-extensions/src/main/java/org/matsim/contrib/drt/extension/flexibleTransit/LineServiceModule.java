@@ -28,9 +28,12 @@ public class LineServiceModule extends AbstractDvrpModeModule {
             return new FixedStopWaypointFactory(stopWaypointFactory, getter.getModal(DvrpLoadType.class), stopTimeCalculator);
         }));
 
-        bindModal(StopTimeCalculator.class).toProvider(modalProvider(getter -> {
-            PassengerStopDurationProvider provider = getter.getModal(PassengerStopDurationProvider.class);
-            return new PrebookingStopTimeCalculator(provider);
-        }));
+        bindModal(DrtStopNetwork.class).toProvider(new FlexibleTransitStopNetworkProvider(getConfig(), drtCfg)).asEagerSingleton();
+
+        if (drtCfg.getPrebookingParams().isPresent()) {
+            bindModal(StopTimeCalculator.class).toProvider(modalProvider(getter -> {
+                PassengerStopDurationProvider provider = getter.getModal(PassengerStopDurationProvider.class);
+                return new PrebookingStopTimeCalculator(provider);
+            }));
+        }
     }
-}

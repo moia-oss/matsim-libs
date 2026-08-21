@@ -57,6 +57,7 @@ public class FixedStopTask extends DefaultStayTask implements DrtStopTask {
         double latestRequestArrivalTime = getDropoffRequests().values().stream().mapToDouble(request ->
                 request.getLatestArrivalTime() - request.getDropoffDuration()).min().orElse(Double.MAX_VALUE);
         double latestScheduleArrivalTime = stop.getArrivalOffset().seconds() + getRouteDepartureTime();
+		//latest arrival is always defined per schedule
         return Math.max(getBeginTime(), latestScheduleArrivalTime);
     }
 
@@ -106,6 +107,13 @@ public class FixedStopTask extends DefaultStayTask implements DrtStopTask {
 
     public LineService getLineService() {
         return lineService;
+    }
+
+    FixedStopTask withTimes(DrtStopTask newDelegate) {
+        return new FixedStopTask(
+                newDelegate,
+                stop,
+                lineService);
     }
 
     @Override

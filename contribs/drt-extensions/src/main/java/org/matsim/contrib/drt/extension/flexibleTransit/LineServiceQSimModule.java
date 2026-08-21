@@ -98,17 +98,19 @@ public class LineServiceQSimModule extends AbstractDvrpModeQSimModule {
 
 
         bindModal(VrpAgentLogic.DynActionCreator.class).toProvider(modalProvider(getter -> {
-            PassengerHandler passengerHandler = (PassengerEngine) getter.getModal(PassengerHandler.class);
-            DrtActionCreator delegate = getter.getModal(DrtActionCreator.class);
-            PassengerStopDurationProvider stopDurationProvider = getter.getModal(PassengerStopDurationProvider.class);
-            PrebookingManager prebookingManager = getter.getModal(PrebookingManager.class);
-            AbandonVoter abandonVoter = getter.getModal(AbandonVoter.class);
-            DvrpLoadType loadType = getter.getModal(DvrpLoadType.class);
+            VrpAgentLogic.DynActionCreator delegate = getter.getModal(DrtActionCreator.class);
 
-            PrebookingActionCreator prebookingActionCreator = new PrebookingActionCreator(passengerHandler, delegate, stopDurationProvider, prebookingManager,
-                    abandonVoter, loadType);
+            if (drtCfg.getPrebookingParams().isPresent()) {
+                DvrpLoadType loadType = getter.getModal(DvrpLoadType.class);
+                PassengerStopDurationProvider stopDurationProvider = getter.getModal(PassengerStopDurationProvider.class);
+                PassengerHandler passengerHandler = (PassengerEngine) getter.getModal(PassengerHandler.class);
+                AbandonVoter abandonVoter = getter.getModal(AbandonVoter.class);
+                PrebookingManager prebookingManager = getter.getModal(PrebookingManager.class);
+                delegate = new PrebookingActionCreator(passengerHandler, delegate, stopDurationProvider, prebookingManager,
+                        abandonVoter, loadType);
+            }
 
-            return new FixedStopActivityCreator(prebookingActionCreator, getter.get(EventsManager.class),
+            return new FixedStopActivityCreator(delegate, getter.get(EventsManager.class),
                     getter.get(MobsimTimer.class), getMode(), getter.getModal(LineServiceManager.class));
 
         }));
