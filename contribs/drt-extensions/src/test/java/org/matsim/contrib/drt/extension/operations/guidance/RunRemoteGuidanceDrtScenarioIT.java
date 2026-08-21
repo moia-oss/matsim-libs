@@ -259,7 +259,7 @@ public class RunRemoteGuidanceDrtScenarioIT {
 	}
 
 	/**
-	 * Tracks global concurrency of the (unbound, D15) supervised fleet from the activation/deactivation events.
+	 * Tracks global concurrency of the supervised fleet from the activation/deactivation events.
 	 */
 	private static final class ConcurrencyTracker implements BasicEventHandler {
 		private final Set<Id<DvrpVehicle>> supervised = new HashSet<>();

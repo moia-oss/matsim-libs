@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -16,8 +16,8 @@ import java.util.Map;
 
 /**
  * Fired when a vehicle is deactivated from remote guidance, i.e. taken out of service (its virtual driver shift ends
- * and it returns to a hub). Carries <em>no</em> operator id (D15 — no operator&harr;vehicle binding). The
- * {@link #getReason()} records which extensive-margin trigger caused the deactivation (D16): the aggregate capacity
+ * and it returns to a hub). Carries <em>no</em> operator id, since there is no operator&harr;vehicle binding. The
+ * {@link #getReason()} records which trigger caused the deactivation: the aggregate capacity
  * dropped below the active count ({@link DeactivationReason#capacityExceeded}), the vehicle sat idle in service for
  * too long ({@link DeactivationReason#idleTimeout}), or it otherwise returned to a hub.
  *
@@ -32,10 +32,10 @@ public class VehicleDeactivatedForRemoteGuidanceEvent extends Event {
 	public static final String ATTRIBUTE_REASON = "reason";
 
 	/**
-	 * The extensive-margin trigger that deactivated the vehicle (D16).
+	 * The trigger that deactivated the vehicle.
 	 */
 	public enum DeactivationReason {
-		/** The aggregate operator capacity {@code Σκ(t)} dropped below the active vehicle count (an operator went off-duty). */
+		/** The aggregate operator capacity dropped below the active vehicle count (an operator went off-duty). */
 		capacityExceeded,
 		/** The vehicle was idle in service (a last-task stay) for longer than the configured idle timeout. */
 		idleTimeout,

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by

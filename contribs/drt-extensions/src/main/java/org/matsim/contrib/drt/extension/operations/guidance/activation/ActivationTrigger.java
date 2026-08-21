@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -9,17 +9,16 @@
 package org.matsim.contrib.drt.extension.operations.guidance.activation;
 
 /**
- * A pluggable, OR-combinable activation policy for the remote guidance extensive margin (RF1 / D17). Each trigger reads
- * the current {@link GuidanceState} and proposes how many vehicles <em>should</em> be active according to its own
- * concern — an <b>absolute desired active count</b>, not a delta. The {@link ActivationReconciler} combines several
- * triggers by taking the maximum (OR semantics: any trigger may pull the fleet up), then clamps to the hard ceiling
- * {@link GuidanceState#activationCapacity()}. The combined target governs both activation and deactivation, so a trigger
- * added here automatically constrains how far the deactivation side may recall too.
+ * One concern in the remote guidance activation policy. A trigger reads the current {@link GuidanceState} and proposes
+ * how many vehicles should be active, as an absolute count rather than a delta. {@link ActivationReconciler} combines
+ * several triggers by taking their maximum, so any one of them may pull the fleet up, and clamps the result to
+ * {@link GuidanceState#activationCapacity()}. The combined target governs deactivation as well, so adding a trigger also
+ * constrains how far the deactivation side may recall.
  * <p>
- * Absolute-desired (rather than delta) is deliberate: two triggers reacting to the same signal both name the same
- * target, so {@code max} de-duplicates them; summing deltas would double-count. A trigger's target may be below the
- * current active count (e.g. a responsiveness buffer once demand drops) — that is how it signals the deactivation side
- * to ramp down; the activation side clamps such a gap to zero.
+ * Absolute counts rather than deltas mean two triggers reacting to the same signal name the same target and the maximum
+ * de-duplicates them, where summing deltas would double-count. A target may fall below the current active count, for
+ * instance a responsiveness buffer once demand drops: that is how a trigger asks the deactivation side to ramp down,
+ * while the activation side clamps the negative gap to zero.
  *
  * @author nkuehnel / MOIA
  */
@@ -28,7 +27,7 @@ public interface ActivationTrigger {
 
 	/**
 	 * @return the number of vehicles this trigger wants active at {@code now}. Values outside {@code [0, capacity]} are
-	 * fine — the reconciler clamps; a trigger should express its raw intent (e.g. {@code activeCount + 1} for one extra).
+	 * fine, since the reconciler clamps, so a trigger should express its raw intent.
 	 */
 	int desiredActive(GuidanceState state, double now);
 }

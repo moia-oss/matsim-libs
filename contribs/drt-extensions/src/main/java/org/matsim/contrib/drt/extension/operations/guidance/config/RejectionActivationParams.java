@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -14,10 +14,10 @@ import org.matsim.core.config.Config;
 import org.matsim.core.config.ReflectiveConfigGroup;
 
 /**
- * Optional configuration for the demand-driven activation trigger (RF: {@code RejectionRateActivation}). When this
+ * Optional configuration for the demand-driven {@code RejectionRateActivation} trigger. When this
  * parameter set is present under {@link RemoteGuidanceParams}, a {@code RejectionRateActivation} trigger is added to the
  * shared activation policy: while the recent request-rejection rate exceeds {@link #rejectionRateThreshold}, the trigger
- * targets the full activation capacity {@code Σκ} (activate everything demand pressure allows); when rejections subside
+ * targets the full activation capacity (activate everything demand pressure allows); when rejections subside
  * the responsiveness buffer / floor take over and the fleet ramps back down. Absent this set, no demand-driven trigger
  * is wired and behaviour is unchanged.
  * <p>
@@ -37,7 +37,7 @@ public class RejectionActivationParams extends ReflectiveConfigGroup {
 
 	@Parameter
 	@Comment("Rejection-rate threshold in [0,1]: while the recent rejection rate (rejected / (rejected + scheduled)) "
-			+ "over the trailing window exceeds this, the trigger targets the full activation capacity Σκ. Defaults to "
+			+ "over the trailing window exceeds this, the trigger targets the full activation capacity. Defaults to "
 			+ "0.1 (10% of requests rejected).")
 	private double rejectionRateThreshold = 0.1;
 

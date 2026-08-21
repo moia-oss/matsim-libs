@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -9,8 +9,8 @@
 package org.matsim.contrib.drt.extension.operations.guidance.activation;
 
 /**
- * Trigger expressing the hard regulatory floor on the active fleet (D17): a constant target of {@code minActiveFleet}
- * vehicles regardless of demand. Maps to the paper's regulatory minimum-staffing floor {@code r̄·N}.
+ * Trigger expressing a hard floor on the active fleet: a constant target of {@code minActiveFleet}
+ * vehicles regardless of demand, e.g. a mandated minimum level of supervised service.
  * <p>
  * <b>Why the floor is a trigger and not a special-cased seed.</b> The floor is one of several forces that set the shared
  * fleet-sizing target {@link ActivationReconciler#desired}, and that target governs <em>both</em> activation and

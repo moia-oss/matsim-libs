@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -9,7 +9,7 @@
 package org.matsim.contrib.drt.extension.operations.guidance.config;
 
 /**
- * Selects which remote guidance activation policy the {@code ActivationReconciler} is built from (RF1 / D17). Both
+ * Selects which remote guidance activation policy the {@code ActivationReconciler} is built from. Both
  * extensive-margin sides (the scheduler ramping up, the shift-end logic recalling down) build an identical reconciler
  * from this choice, so they always share one fleet-sizing target.
  *
@@ -17,16 +17,15 @@ package org.matsim.contrib.drt.extension.operations.guidance.config;
  */
 public enum ActivationPolicy {
 	/**
-	 * The default demand-responsive policy: the regulatory floor plus a single idle-in-service responsiveness buffer
-	 * (plus a demand-driven rejection trigger iff {@code rejectionActivation} is configured). Keeps only a small ready
-	 * buffer active during lulls; damps the low-demand activate&harr;recall sawtooth.
+	 * The default demand-responsive policy: the {@code minActiveFleet} floor plus one idle-in-service responsiveness
+	 * buffer, and a demand-driven rejection trigger if {@code rejectionActivation} is configured. Keeps only a small ready
+	 * buffer active during lulls, which damps the low-demand activate/recall sawtooth.
 	 */
 	buffered,
 	/**
-	 * The greedy baseline (original D4 behaviour): activate every idle-at-hub vehicle while capacity allows, driving the
-	 * active fleet to the ceiling {@code Σκ} regardless of demand. Kept for comparison runs. The regulatory floor still
-	 * applies (it is dominated by greedy anyway); the responsiveness buffer and rejection trigger are irrelevant under
-	 * greedy and are not wired.
+	 * Activates every idle-at-hub vehicle while capacity allows, driving the active fleet to the capacity ceiling
+	 * regardless of demand. The floor still applies but is dominated; the responsiveness buffer and the rejection trigger
+	 * have no effect here and are not wired.
 	 */
 	greedy
 }

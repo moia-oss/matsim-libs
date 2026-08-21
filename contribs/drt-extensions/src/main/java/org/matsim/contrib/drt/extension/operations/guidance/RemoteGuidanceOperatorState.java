@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -18,28 +18,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The mutable, per-run runtime state of the remote guidance operator pool — the runtime companion to the immutable
- * spec-level {@link RemoteGuidanceOperators}. It owns everything about operators that changes as a simulation unfolds
- * and is meaningless outside a single QSim run: which operators have been <em>released</em> (D22) and when (their
- * <em>effective</em> end time, deferred past the planned end whenever an early release would break coverage), and which
- * are currently <em>incident-busy</em>.
+ * Per-iteration runtime state of the operator pool: which operators have started, which have been released and when, and
+ * which are currently processing an incident. The runtime companion to {@link RemoteGuidanceOperators}, which holds the
+ * immutable specification and is therefore safe to share across iterations, while everything mutable lives here and is
+ * cleared by {@link #reset()}.
  * <p>
- * Keeping this state here rather than on the spec {@link Operator} objects means the spec registry stays immutable and
- * cross-iteration safe, while all resettable state lives on this dedicated object and is cleared per iteration via
- * {@link #reset()} (called from {@code RemoteGuidanceScheduler.initialSchedule()}, which already re-initialises the
- * scheduler's per-iteration state). This removes the former bug where the release flag, living on a cross-iteration
- * spec instance, was never reset and starved coverage from the second iteration on.
- * <p>
- * <b>Lifecycle taxonomy.</b> An operator is:
- * <ul>
- *     <li><em>on duty for coverage</em> from its planned start until it is released — this is the runtime supervision /
- *         incident-server window and may extend past the planned end (retention);</li>
- *     <li><em>pending release</em> once it has reached its planned end but has not been released yet (retained for
- *         coverage);</li>
- *     <li><em>released</em> once {@link #releaseElapsedOperators(double, int)} has freed it — its effective end time is
- *         then fixed and it no longer contributes to coverage or the incident server pool.</li>
- * </ul>
- * There is no handover (D16): an incident-busy operator is never released mid-incident.
+ * An operator is <em>on duty for coverage</em> from its planned start until it is released. That window may extend past
+ * the planned end, because an operator is only released once its vehicles no longer need it and it holds no incident, so
+ * that the supervised fleet never exceeds the available capacity. Its <em>effective</em> end time is the deferred end
+ * that results.
  *
  * @author nkuehnel / MOIA
  */
@@ -71,9 +58,9 @@ public final class RemoteGuidanceOperatorState {
 	}
 
 	/**
-	 * @return the coverage capacity {@code Σκ(t)} — the summed capacity of all operators on duty for coverage at
-	 * {@code now} (including operators retained past their planned end). The active supervised fleet must never exceed
-	 * this, and it is the {@link IncidentDispatcher}'s server pool.
+	 * @return the summed capacity of all operators on duty for coverage at {@code now}, including those retained past
+	 * their planned end. The active supervised fleet must never exceed this, and it is the {@link IncidentDispatcher}'s
+	 * server pool.
 	 */
 	public int coverageCapacityAt(double now) {
 		int capacity = 0;
@@ -85,7 +72,7 @@ public final class RemoteGuidanceOperatorState {
 		return capacity;
 	}
 
-	/** @return the number of operators on duty for coverage (runtime sense) at {@code now}. */
+	/** @return the number of operators on duty for coverage at {@code now}. */
 	public int onDutyForCoverageCount(double now) {
 		int count = 0;
 		for (Operator operator : registry.getOperators().values()) {
@@ -96,15 +83,15 @@ public final class RemoteGuidanceOperatorState {
 		return count;
 	}
 
-	/** On duty in the runtime sense (coverage + incident processing): started and not yet released. */
+	/** On duty for supervision and incident processing, i.e. started and not yet released. */
 	public boolean onDutyForCoverage(Operator operator, double now) {
 		Runtime runtime = runtimeById.get(operator.id());
 		return operator.startTime() <= now && !runtime.released;
 	}
 
 	/**
-	 * Marks the operators whose planned start has been reached this step as started, firing nothing itself (the caller
-	 * emits the lifecycle event). Idempotent per operator.
+	 * Marks the operators whose planned start has been reached as started. Idempotent per operator; the caller emits the
+	 * lifecycle event.
 	 *
 	 * @return the operators that transitioned to started on this call, in registry order.
 	 */
@@ -121,8 +108,8 @@ public final class RemoteGuidanceOperatorState {
 	}
 
 	/**
-	 * Marks whether the operator with {@code operatorId} is currently processing an incident. Called by the
-	 * {@link IncidentDispatcher} on assignment / resolution. A busy operator is never released.
+	 * Marks whether the operator is currently processing an incident. Called by the {@link IncidentDispatcher} on
+	 * assignment and on resolution. A busy operator is never released.
 	 */
 	public void setIncidentBusy(Id<DrtShift> operatorId, boolean busy) {
 		Runtime runtime = runtimeById.get(operatorId);
@@ -132,14 +119,12 @@ public final class RemoteGuidanceOperatorState {
 	}
 
 	/**
-	 * Releases operators that have reached their planned end, one at a time, but only while doing so keeps the coverage
-	 * invariant intact: an operator is freed only if it holds no incident and the currently supervised fleet still fits
-	 * under the coverage capacity that <em>remains after</em> removing it. Processed greedily and re-checked per operator
-	 * so several operators ending at the same step release only as far as the shrinking active fleet allows. Called once
-	 * per sim step (from {@code RemoteGuidanceScheduler.schedule}) with the current supervised-vehicle count. The
-	 * released operators' effective end time is fixed to {@code now}.
+	 * Releases operators that have reached their planned end, one at a time and only as far as capacity allows: an
+	 * operator is freed if it holds no incident and the supervised fleet still fits under the capacity that remains after
+	 * removing it. The check is re-evaluated per operator, so several operators ending in the same step release only as
+	 * far as the shrinking active fleet permits. Their effective end time is fixed to {@code now}.
 	 *
-	 * @return the operators released on this call, in registry order (so the caller can emit their ended events).
+	 * @return the operators released on this call, in registry order, so the caller can emit their ended events.
 	 */
 	public List<Operator> releaseElapsedOperators(double now, int activeSupervised) {
 		List<Operator> released = new ArrayList<>();
@@ -155,7 +140,7 @@ public final class RemoteGuidanceOperatorState {
 		return released;
 	}
 
-	/** True once the operator has reached its planned end but has not been released yet (retained for coverage). */
+	/** True once the operator has reached its planned end but has not been released yet. */
 	public boolean isPendingRelease(Operator operator, double now) {
 		Runtime runtime = runtimeById.get(operator.id());
 		return now >= operator.plannedEndTime() && !runtime.released;
@@ -169,7 +154,7 @@ public final class RemoteGuidanceOperatorState {
 		return runtimeById.get(operatorId).incidentBusy;
 	}
 
-	/** @return the operator's effective (actual, possibly deferred) end time once released, else {@code NaN}. */
+	/** @return the operator's effective, possibly deferred end time once released, else {@code NaN}. */
 	public double effectiveEndTime(Id<DrtShift> operatorId) {
 		return runtimeById.get(operatorId).effectiveEndTime;
 	}

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -48,36 +48,26 @@ import java.util.OptionalDouble;
 import java.util.Set;
 
 /**
- * A {@link ShiftScheduler} that implements remote guidance: operator shifts (shifts of the configured operator type)
- * are not assigned to vehicles directly. Instead they define the aggregate supervision capacity {@code Σκ(t)} of the
- * operator pool, tracked by the authoritative {@link RemoteGuidanceOperators} registry (D15 — there is no longer a
- * {@code RemoteGuidanceOperator} wrapper nor any per-vehicle&harr;operator binding). Every step, this scheduler emits
- * "virtual" driver shifts for idle-at-hub vehicles as long as the active count is below the current ceiling. These
- * virtual shifts are processed by the regular {@link org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DrtShiftDispatcher}
- * exactly like normal shifts: the dispatcher assigns each to an idle vehicle and starts it. A virtual shift has
- * <b>no scheduled end of its own</b> — it is created with {@code end = the simulation horizon} (D16) and is ended
- * early on demand by {@link RemoteGuidanceShiftEndLogic} (capacity exceeded / idle timeout), which drives the
- * dispatcher's early-end mechanism.
+ * A {@link ShiftScheduler} for remote guidance, where vehicles are supervised remotely instead of being driven.
  * <p>
- * <b>How many to emit is decided by pluggable activation triggers (RF1 / D17), not greedily.</b> Each step the
- * scheduler builds a narrow {@link GuidanceState} snapshot and hands it to an {@link ActivationReconciler}, which
- * OR-combines the configured {@link ActivationTrigger}s into one fleet-sizing target (max of their desired active
- * counts, clamped to the activation ceiling {@code Σκ}) and returns how many new virtual shifts to emit to reach it.
- * The default policy is the regulatory floor plus a single {@link IdleBufferActivation} responsiveness buffer. The very
- * same reconciler (built from the same config) is read by {@link RemoteGuidanceShiftEndLogic} on the deactivation side,
- * so both margins share one target — which is what damps the low-demand activate&harr;idle-timeout&harr;recall sawtooth
- * the old greedy emit produced.
+ * Shifts of the configured operator shift type are not assigned to vehicles. They define the aggregate supervision
+ * capacity of the operator pool, held by {@link RemoteGuidanceOperators}. Instead, this scheduler emits "virtual"
+ * driver shifts for vehicles waiting idle at a hub, which the regular
+ * {@link org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DrtShiftDispatcher} assigns and starts like any
+ * other shift. A virtual shift has no scheduled end of its own: it ends at the simulation horizon and is ended early on
+ * demand by {@link RemoteGuidanceShiftEndLogic}. Non-operator shifts are passed through unchanged, so a fleet may
+ * combine driver shifts and remote guidance.
  * <p>
- * Non-operator shifts (regular driver shifts) are passed through unchanged, so a fleet may combine driver shifts and
- * remote guidance.
+ * How many shifts to emit is decided by the configured {@link ActivationTrigger}s, which an
+ * {@link ActivationReconciler} combines into a single target active fleet size, clamped to the operator pool's
+ * capacity. The default policy is the configured floor plus one {@link IdleBufferActivation} responsiveness buffer.
+ * {@link RemoteGuidanceShiftEndLogic} reads an identical reconciler, so activation and deactivation share one target.
  * <p>
- * This scheduler <em>observes</em> the extensive margin and fires the two vehicle events: it detects which virtual
- * shifts became live (→ {@link VehicleActivatedForRemoteGuidanceEvent}) and which ended (→
- * {@link VehicleDeactivatedForRemoteGuidanceEvent}) by scanning the fleet's shift queues each step, without any
- * id&harr;operator bookkeeping. The deactivation reason is inferred from the aggregate signal: if the number of
- * still-supervised vehicles remains at or above {@code capacityAt(now)}, the release was forced by a capacity drop
- * ({@link DeactivationReason#capacityExceeded}); otherwise a below-ceiling release is a demand-slack recall
- * ({@link DeactivationReason#idleTimeout}). This mirrors the two triggers in {@link RemoteGuidanceShiftEndLogic}.
+ * The scheduler also fires {@link VehicleActivatedForRemoteGuidanceEvent} and
+ * {@link VehicleDeactivatedForRemoteGuidanceEvent}, detecting the transitions by scanning the fleet's shift queues each
+ * step. The deactivation reason is inferred from the aggregate signal: a release while the supervised fleet is still at
+ * or above capacity was forced by a capacity drop ({@link DeactivationReason#capacityExceeded}), a release below
+ * capacity is a demand-slack recall ({@link DeactivationReason#idleTimeout}).
  *
  * @author nkuehnel / MOIA
  */
@@ -95,24 +85,20 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	private final String mode;
 	private final double changeoverDuration;
 	private final ActivationReconciler activationReconciler;
-	// nullable: the demand-pressure source for the RejectionRateActivation trigger; null when no rejection-activation
-	// config is present (then recentRejectionRate stays 0.0 and the trigger, if somehow present, never fires).
+	// demand-pressure source for the rejection-rate trigger; null when no rejection activation is configured
 	private final RejectionRateTracker rejectionRateTracker;
-	// the trailing-window busy-count smoother shared with the deactivation side. A window of 0 makes it a pass-through
-	// (smoothedBusy == instantaneous busy), so behaviour is unchanged when the busy window is disabled.
+	// trailing-window busy-count smoother, shared with the deactivation side. A window of 0 makes it a pass-through.
 	private final BusyWindowTracker busyWindowTracker;
 
 	// runtime state, (re)initialized on each initialSchedule() (i.e. per iteration)
 	private Map<Id<DrtShift>, Id<DvrpVehicle>> liveVirtualShifts;
 	private long virtualShiftCounter;
-	// the "simulation horizon" end assigned to every virtual shift (D16). Lazily derived from the fleet on the first
-	// schedule() call as (minimum service end time − changeover duration). A virtual shift has a discretionary end
-	// (D21): startShift materialises NO changeover tail for it, so this end time is never physically reached as a
-	// changeover — it only serves as the far-future bound that the dispatcher's lifecycle keys on and against which
-	// the recall look-ahead is evaluated. The − changeoverDuration is no longer load-bearing (post-D21 nothing is
-	// materialised at this time); it is kept only as a small margin below service end so that the shift end sorts
-	// strictly before the vehicle's service end in the dispatcher's end-time-keyed lifecycle. A recall materialises
-	// its own changeover with a fresh [arrival, serviceEnd] reservation and does not depend on this offset.
+	// the simulation-horizon end assigned to every virtual shift, lazily derived from the fleet on the first schedule()
+	// call as (earliest vehicle service end − changeover duration). A virtual shift materialises no changeover tail, so
+	// this time is never reached as a changeover: it is the far-future bound the dispatcher's end-time-keyed lifecycle
+	// sorts on and against which the recall look-ahead is evaluated. The margin below service end only keeps the shift
+	// end sorting strictly before the vehicle's service end. A recall materialises its own changeover with a fresh
+	// [arrival, serviceEnd] reservation and does not depend on this offset.
 	private double virtualShiftEndTime = Double.NaN;
 
 	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceOperators operators,
@@ -134,14 +120,14 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	@Override
 	public ImmutableMap<Id<DrtShift>, DrtShift> initialSchedule() {
-		// (re)init runtime state for this iteration. Virtual shifts are purely transient (they exist only in the QSim
-		// lifecycle via liveVirtualShifts + the activation/deactivation events); they are deliberately NOT written into
-		// the persistent shift specification, so there is nothing to purge across iterations and no id can collide.
+		// (re)init runtime state for this iteration. Virtual shifts are transient: they live only in the QSim lifecycle
+		// and are deliberately not written into the persistent shift specification, so nothing has to be purged across
+		// iterations and no id can collide.
 		liveVirtualShifts = new HashMap<>();
 		virtualShiftCounter = 0;
-		// clear the operators' per-iteration runtime lifecycle (released / incident-busy / effective end): the state
-		// object is a single cross-iteration instance, so without this reset a previous iteration's releases would
-		// persist and starve coverage. The immutable spec registry needs no reset.
+		// the operator state is a single cross-iteration instance, so its per-iteration lifecycle (released /
+		// incident-busy / effective end) has to be cleared here or a previous iteration's releases would starve
+		// coverage. The immutable spec registry needs no reset.
 		operatorState.reset();
 
 		// operator shifts define capacity only (via the registry) and are NOT handed to the dispatcher for assignment
@@ -176,14 +162,14 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 					started.capacity()));
 		}
 
-		// single fleet scan: reconciles which virtual shifts are live (firing activation/deactivation events) AND
-		// collects the two D19 idle counts the activation triggers need — folded together to avoid a second pass over
-		// the whole fleet each step (matters at large fleet sizes).
+		// single fleet scan: reconciles which virtual shifts are live (firing activation/deactivation events) and
+		// collects the idle counts the activation triggers need. Folded together to avoid a second pass over the whole
+		// fleet each step, which matters at large fleet sizes.
 		IdleCounts idleCounts = reconcileSupervisions(now, fleet);
 
-		// D22: release operators that have passed their planned end, but only as far as the (now reconciled) active
-		// supervised fleet allows without breaking coverage — a retained operator keeps supervising its vehicles and
-		// finishing any pending incident until its vehicles have gone home. Runs before emission so the freshly-released
+		// release operators that have passed their planned end, but only as far as the (now reconciled) active
+		// supervised fleet allows without breaking coverage: a retained operator keeps supervising its vehicles and
+		// finishing any pending incident until its vehicles have gone home. Runs before emission so freshly-released
 		// operators no longer count toward the activation ceiling below. Each release fires an ended event carrying the
 		// planned end, so the retention (effective − planned) is observable.
 		for (RemoteGuidanceOperators.Operator released : operatorState.releaseElapsedOperators(now, liveVirtualShifts.size())) {
@@ -191,13 +177,13 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 					released.plannedEndTime()));
 		}
 
-		// activation (RF1 / D17): pluggable triggers decide how many vehicles should be active; the reconciler combines
-		// them and clamps to the hard floor + the activation ceiling Σκ. The ceiling uses the PLANNED-window capacity
-		// (not coverage): a winding-down operator retained past its planned end must not pull new vehicles in.
+		// the triggers decide how many vehicles should be active; the reconciler combines them and clamps to the floor
+		// and the activation capacity. The ceiling uses the planned-window capacity rather than coverage, so that an
+		// operator retained past its planned end cannot pull new vehicles in while winding down.
 		double rejectionRate = rejectionRateTracker == null ? 0.0 : rejectionRateTracker.rejectionRate(now);
-		// busy counts only STARTED virtual vehicles doing passenger work — NOT the queue-membership activeCount below.
+		// busy counts only started virtual vehicles doing passenger work, not the queue-membership activeCount below.
 		// A replacement shift assigned to a still-recalling vehicle at end of day is live (so activeCount does not
-		// re-emit it) but not yet started; feeding it into busy would re-inflate the target and re-run the runaway.
+		// re-emit it) but not yet started; feeding it into busy would re-inflate the target.
 		int busy = busy(idleCounts.startedVirtual(), idleCounts.idleInService(), idleCounts.leaving());
 		int smoothedBusy = busyWindowTracker.sample(now, busy);
 		GuidanceState state = new GuidanceState(liveVirtualShifts.size(), operators.activationCapacityAt(now),
@@ -210,43 +196,35 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	}
 
 	/**
-	 * Counts collected during the single fleet scan: idle-at-hub (activation source), idle-in-service (ready buffer),
-	 * leaving (live virtual vehicles already recalled and routing home — a materialised changeover tail), and
-	 * startedVirtual (vehicles with an actually-started virtual shift). {@code leaving} is excluded from busy so a
-	 * winding-down vehicle does not trigger a replacement activation. {@code startedVirtual} is the base for busy
-	 * (passenger-work capacity), deliberately narrower than the queue-membership {@code activeCount}: an end-of-day
-	 * replacement shift assigned to a still-recalling vehicle is live (counted in activeCount so it is not re-emitted)
-	 * but not yet started, so it must not inflate busy.
+	 * Counts collected during the single fleet scan.
+	 *
+	 * @param idleAtHub      out of service and waiting at a hub, i.e. available for activation
+	 * @param idleInService  active but idle, i.e. the ready buffer
+	 * @param leaving        active and already recalled, routing home on a materialised changeover tail
+	 * @param startedVirtual vehicles whose virtual shift has actually started
 	 */
 	private record IdleCounts(int idleAtHub, int idleInService, int leaving, int startedVirtual) {}
 
 	/**
-	 * The busy count fed into the shared {@link BusyWindowTracker}: STARTED virtual vehicles doing passenger work, i.e.
-	 * neither idle-in-service (ready buffer) nor {@code leaving} (already recalled, routing home on a materialised
-	 * changeover tail).
+	 * The busy count fed into the shared {@link BusyWindowTracker}: started virtual vehicles doing passenger work, i.e.
+	 * neither idle in service nor already recalled.
 	 * <p>
-	 * Two exclusions, both load-bearing against the end-of-day recall/re-activate runaway:
-	 * <ul>
-	 *     <li>{@code startedVirtual} (not the queue-membership activeCount) is the base: a replacement shift assigned to
-	 *         a still-recalling vehicle is live (counted in activeCount so it is not re-emitted) but its vehicle is not
-	 *         doing passenger work, so it must not count as busy.</li>
-	 *     <li>{@code leaving} is subtracted: a recalled vehicle is not idle-in-service (its last task is no longer a stay
-	 *         task) yet it is winding down, not busy — counting it as busy would re-activate a replacement for a vehicle
-	 *         that is going home.</li>
-	 * </ul>
-	 * {@link RemoteGuidanceShiftEndLogic} computes busy over an active set of started, non-leaving vehicles too; both
-	 * margins feed the same tracker, so they must agree on this signal. Pure arithmetic, package-private for unit testing.
+	 * Both exclusions guard against an end-of-day recall/re-activate loop. {@code startedVirtual} rather than the
+	 * queue-membership active count is the base, because a replacement shift assigned to a still-recalling vehicle is
+	 * live (so it is not re-emitted) while its vehicle is not doing passenger work. {@code leaving} is subtracted
+	 * because a recalled vehicle is no longer idle in service, yet counting it as busy would activate a replacement for
+	 * a vehicle that is going home. {@link RemoteGuidanceShiftEndLogic} derives busy the same way, since both margins
+	 * feed the same tracker and have to agree on the signal.
 	 */
 	static int busy(int startedVirtual, int idleInService, int leaving) {
 		return startedVirtual - idleInService - leaving;
 	}
 
 	/**
-	 * Warns once (at the first schedule call) if the configured {@code minActiveFleet} floor can never be met, because
-	 * it exceeds either the maximum activation capacity {@code Σκ} the operator schedule ever reaches, or the number of
-	 * shift-capable vehicles in the fleet. Both are hard upper bounds on the active count; the reconciler clamps the
-	 * floor to them gracefully, so this is a diagnostic only (no exception): a silently-truncated floor would otherwise
-	 * read as "the floor is in effect" when it is not.
+	 * Warns once, at the first schedule call, if the configured {@code minActiveFleet} floor can never be met because it
+	 * exceeds either the maximum activation capacity the operator schedule ever reaches or the number of shift-capable
+	 * vehicles in the fleet. Both are hard upper bounds on the active count. The reconciler clamps the floor to them, so
+	 * this is a diagnostic rather than an error: a silently truncated floor would otherwise read as being in effect.
 	 */
 	private void warnIfMinActiveFleetUnreachable(Fleet fleet) {
 		int minActiveFleet = params.getMinActiveFleet();
@@ -255,7 +233,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		}
 		int maxCapacity = operators.maxActivationCapacity();
 		if (minActiveFleet > maxCapacity) {
-			logger.warn("minActiveFleet ({}) exceeds the maximum operator activation capacity Σκ ({}); the floor is "
+			logger.warn("minActiveFleet ({}) exceeds the maximum operator activation capacity ({}); the floor is "
 					+ "capped by capacity and can never be fully met.", minActiveFleet, maxCapacity);
 		}
 		long shiftVehicles = fleet.getVehicles().values().stream()
@@ -268,10 +246,9 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	}
 
 	/**
-	 * Single pass over the fleet that (1) recomputes which virtual shifts are live (present in a vehicle's shift queue)
-	 * and fires activation/deactivation events on transitions, and (2) tallies the two D19 idle counts for the
-	 * activation triggers. Emission no longer needs an id&harr;operator map: a virtual shift is recognised purely by
-	 * its shift type.
+	 * Single pass over the fleet that recomputes which virtual shifts are live (present in a vehicle's shift queue),
+	 * fires activation and deactivation events on the transitions, and tallies the idle counts the activation triggers
+	 * read.
 	 */
 	private IdleCounts reconcileSupervisions(double now, Fleet fleet) {
 		Map<Id<DrtShift>, Id<DvrpVehicle>> currentlyLive = new HashMap<>();
@@ -283,45 +260,40 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 			if (!(vehicle instanceof ShiftDvrpVehicle shiftVehicle)) {
 				continue;
 			}
-			// every virtual shift in the queue counts as live for activeCount purposes: a shift emitted this iteration is
-			// assigned and started within the same dispatcher step (scheduleShifts→assignShifts→startShifts), so counting
-			// queue membership (not isStarted) keeps activeCount from briefly undercounting and re-emitting a duplicate.
-			// This full-queue scan was never exposed to the peek() head-vs-started hazard the idle/recall paths were.
+			// every virtual shift in the queue counts as live: a shift emitted this step is assigned and started within
+			// the same dispatcher step (scheduleShifts → assignShifts → startShifts), so keying on queue membership
+			// rather than isStarted() keeps the active count from briefly undercounting and re-emitting a duplicate.
 			for (DrtShift shift : shiftVehicle.getShifts()) {
 				if (isVirtualShift(shift)) {
 					currentlyLive.put(shift.getId(), vehicle.getId());
 				}
 			}
-			// idle counts (D19), only meaningful for a started schedule
+			// idle counts, only meaningful for a started schedule
 			Schedule schedule = vehicle.getSchedule();
 			if (schedule.getStatus() != Schedule.ScheduleStatus.STARTED) {
 				continue;
 			}
 			Task currentTask = schedule.getCurrentTask();
 			if (shiftVehicle.getShifts().isEmpty()) {
-				// no shift assigned at all: out of service, waiting at a hub → activation source. (Any queued shift —
-				// started or not, virtual or a driver shift — means the vehicle is not a free activation source, so the
-				// empty-queue check is deliberately kept here rather than "no started virtual shift".)
+				// no shift assigned at all: out of service, waiting at a hub, so available for activation. Any queued
+				// shift, started or not, virtual or a driver shift, makes the vehicle unavailable, which is why this
+				// keys on the empty queue rather than on the absence of a started virtual shift.
 				if (currentTask instanceof WaitForShiftTask) {
 					idleAtHub++;
 				}
 			} else if (startedVirtualShift(shiftVehicle).isPresent()) {
-				// a virtual shift that has actually STARTED (vehicle is supervised and doing/able to do passenger work).
-				// This is deliberately narrower than currentlyLive (queue membership): at end of day a recalled vehicle
-				// still mid-changeover can have a fresh replacement shift ASSIGNED but not yet started — that shift is in
-				// the queue (→ counted live, so activeCount does not re-emit it) but its vehicle is NOT doing passenger
-				// work, so it must not feed busy. busy is computed over startedVirtual, activeCount over currentlyLive.
+				// a virtual shift that has actually started, i.e. the vehicle is supervised and able to do passenger
+				// work. Narrower than queue membership: at end of day a recalled vehicle still mid-changeover can have a
+				// replacement shift assigned but not started, which counts as live but must not feed busy.
 				startedVirtual++;
 				if (ShiftSchedules.getNextShiftChangeover(schedule).isPresent()) {
-					// already recalled and routing home: since D21 a virtual shift has no eager tail, so a materialised
-					// changeover can only be a recall's. Such a vehicle is winding down, NOT doing passenger work — it
-					// must not inflate busy (= active − idleInService), or the freed slot is immediately re-activated and
-					// the recall/re-activate loop runs away at end of day. This mirrors RemoteGuidanceShiftEndLogic's
-					// isAlreadyLeaving exclusion so both margins feed the shared BusyWindowTracker the same busy signal.
+					// already recalled and routing home. A virtual shift has no eager changeover tail, so a materialised
+					// changeover can only come from a recall. Such a vehicle is winding down rather than doing passenger
+					// work, and counting it as busy would immediately re-activate a replacement for it.
 					leaving++;
 				} else if (currentTask instanceof DrtStayTask && currentTask.equals(Schedules.getLastTask(schedule))) {
-					// active virtual vehicle truly idle in service (D19: stay task that is the last task) → ready buffer.
-					// keyed on the STARTED virtual shift, not the queue head, which may be a not-yet-started future shift.
+					// active but idle in service (a stay task that is the last task), i.e. part of the ready buffer.
+					// Keyed on the started virtual shift, not on the queue head, which may be a future shift.
 					idleInService++;
 				}
 			}
@@ -341,8 +313,8 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		int stillLive = currentlyLive.size();
 		for (Id<DrtShift> endedShiftId : ended) {
 			Id<DvrpVehicle> vehicleId = liveVirtualShifts.get(endedShiftId);
-			// aggregate inference of the trigger (mirrors RemoteGuidanceShiftEndLogic): still at/over the ceiling → the
-			// release was forced by a capacity drop; below the ceiling → a demand-slack (idle-timeout) recall.
+			// the trigger is inferred from the aggregate signal, as in RemoteGuidanceShiftEndLogic: still at or over
+			// capacity means the release was forced by a capacity drop, below capacity means a demand-slack recall.
 			DeactivationReason reason = stillLive >= capacity
 					? DeactivationReason.capacityExceeded
 					: DeactivationReason.idleTimeout;
@@ -355,11 +327,11 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	private DrtShift createVirtualShift(double now) {
 		Id<DrtShift> id = Id.create("rg_" + (virtualShiftCounter++) + "_" + (long) now, DrtShift.class);
-		// no fixed facility: the vehicle is activated from / returns to any hub (hub-based handover);
+		// no fixed facility: the vehicle is activated from and returns to any hub;
 		// no designated vehicle: the dispatcher matches an idle vehicle;
-		// end = simulation horizon (D16): the shift runs until a deactivation trigger recalls it early;
-		// committedEnd = false (D21): the horizon end is discretionary, so startShift materialises NO changeover/wait
-		// tail — the vehicle stays in service on a plain stay until a recall lazily materialises the end.
+		// end at the simulation horizon: the shift runs until a deactivation trigger recalls it early;
+		// committedEnd false: the horizon end is discretionary, so startShift materialises no changeover or wait tail
+		// and the vehicle stays in service on a plain stay task until a recall materialises the end.
 		return new DrtShiftImpl(id, now, virtualShiftEndTime, null, null, null, VIRTUAL_SHIFT_TYPE, false);
 	}
 
@@ -372,11 +344,11 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	}
 
 	/**
-	 * The vehicle's currently <em>running</em> virtual shift, if any. A {@link ShiftDvrpVehicle}'s shift queue is a
-	 * {@link java.util.PriorityQueue} ordered by start time and holds shifts from assignment (not from start), so its
-	 * head ({@code peek()}) may be a not-yet-started future shift while a different one is actually running. Idle/recall
-	 * decisions must key on the shift that has {@link DrtShift#isStarted() started} and not {@link DrtShift#isEnded()
-	 * ended}, never blindly on the queue head. At most one such shift exists (a vehicle runs one shift at a time).
+	 * The vehicle's currently running virtual shift, if any. A {@link ShiftDvrpVehicle}'s shift queue is ordered by start
+	 * time and holds shifts from assignment rather than from start, so its head may be a future shift while a different
+	 * one is running. Idle and recall decisions therefore have to key on the shift that has
+	 * {@link DrtShift#isStarted() started} and not {@link DrtShift#isEnded() ended}, not on the queue head. At most one
+	 * such shift exists, since a vehicle runs one shift at a time.
 	 */
 	static Optional<DrtShift> startedVirtualShift(ShiftDvrpVehicle vehicle) {
 		for (DrtShift shift : vehicle.getShifts()) {
@@ -393,18 +365,15 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	}
 
 	/**
-	 * Convenience factory wrapping a {@link DefaultShiftScheduler} over the given specification, with the default
-	 * activation policy from {@link ActivationReconciler#createDefault} (RF1 / D17): the regulatory {@code minActiveFleet}
-	 * floor, an {@link IdleBufferActivation} responsiveness buffer, and — iff {@code rejectionActivation} is configured —
-	 * a demand-driven {@code RejectionRateActivation} fed by {@code rejectionRateTracker}. The deactivation side ({@link
-	 * RemoteGuidanceShiftEndLogic}) builds an identical reconciler from the same params and reads the SAME tracker, so
-	 * both margins share one fleet-sizing target. The greedy baseline ({@code GreedyIdleActivation}) is deliberately NOT
-	 * in the default set — it reproduces the low-demand sawtooth.
+	 * Convenience factory wrapping a {@link DefaultShiftScheduler} over the given specification, with the activation
+	 * policy built from {@code params}: the {@code minActiveFleet} floor, an {@link IdleBufferActivation} responsiveness
+	 * buffer, and, if rejection activation is configured, a demand-driven trigger fed by {@code rejectionRateTracker}.
+	 * {@link RemoteGuidanceShiftEndLogic} builds an identical reconciler from the same params and reads the same
+	 * trackers, so both margins share one target.
 	 *
-	 * @param rejectionRateTracker shared demand-pressure source; {@code null} when no rejection-activation config is
-	 *                             present (then no {@code RejectionRateActivation} is wired).
+	 * @param rejectionRateTracker shared demand-pressure source, {@code null} when no rejection activation is configured
 	 * @param busyWindowTracker    shared trailing-window busy smoother read by both margins; a window of 0 makes it a
-	 *                             pass-through, so behaviour is unchanged when the busy window is disabled.
+	 *                             pass-through
 	 */
 	public static RemoteGuidanceScheduler create(DrtShiftsSpecification specification, RemoteGuidanceOperators operators,
 												 RemoteGuidanceOperatorState operatorState, RemoteGuidanceParams params,
@@ -417,8 +386,8 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	}
 
 	/**
-	 * The configured rejection-rate threshold for the demand-driven trigger, or empty when no rejection-activation
-	 * config is present. Shared by both margins so they build the identical trigger set.
+	 * The configured rejection-rate threshold for the demand-driven trigger, or empty when no rejection activation is
+	 * configured. Read by both margins so they build the identical trigger set.
 	 */
 	public static OptionalDouble rejectionThreshold(RemoteGuidanceParams params) {
 		return params.getRejectionActivationParams()

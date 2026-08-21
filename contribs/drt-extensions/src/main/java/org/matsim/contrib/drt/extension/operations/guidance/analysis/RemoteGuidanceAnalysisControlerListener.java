@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -64,38 +64,28 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 /**
- * Writes the remote-guidance operator-utilisation analysis outputs (track B1–B5) per iteration, from the raw data
- * accumulated by {@link RemoteGuidanceAnalysisTracker}. Files, all prefixed with {@code drt_remoteGuidance_} and
- * suffixed with the mode:
+ * Writes the remote guidance analysis outputs per iteration, from the raw data accumulated by
+ * {@link RemoteGuidanceAnalysisTracker}. All file names are prefixed with {@code drt_remoteGuidance_} and suffixed with
+ * the mode:
  * <ul>
- *     <li><b>B1</b> {@code _incidents} (CSV, per iteration) — one row per completed incident.</li>
- *     <li><b>B2</b> {@code _incidentStats} (CSV, per iteration) — per-severity + combined summary of counts, queueing
- *         and durations; also appended one row per iteration to the cross-iteration {@code _incidentStats} output
- *         file.</li>
- *     <li><b>B3</b> {@code _operatorUtilisation} (CSV + PNG, per iteration) — the concurrent-busy-operator step function
- *         against the operator pool. The denominator is the REAL on-duty operator count reconstructed from the operator
- *         started/ended events (one operator per incident regardless of κ, D14); the schedule-based
- *         {@link RemoteGuidanceOperators#plannedOnDutyCount(double)} is kept as a planned comparison line.</li>
- *     <li><b>B3b/B7</b> {@code _operatorHours} (CSV, per iteration + cross-iteration append) — planned vs. actual
- *         operator-hours (the gap = D22 retention overhead), feeding the labour term L_T.</li>
- *     <li><b>B4</b> {@code _activeVehicles} (CSV + PNG, per iteration) — the supervised-active count step function
- *         against the activation ceiling {@link RemoteGuidanceOperators#activationCapacityAt(double)}.</li>
- *     <li><b>B5</b> {@code _deactivationReasons} (CSV, per iteration) — the deactivation-reason breakdown plus the
- *         activation-churn totals.</li>
- *     <li><b>B6</b> {@code .gpkg} layer {@code incident_hotspots} (at shutdown) — per-link incident count + mean queue
- *         delay + mean hold duration, as point features at the link's to-node, in a mode-specific GeoPackage that later
- *         RG spatial layers can be added to.</li>
- *     <li><b>B7</b> {@code _production} (CSV, per iteration + cross-iteration append) — the labour-economics production
- *         tuple per run: L_T (actual operator-hours), Y (passenger-km served), and the service-quality metrics (served
- *         requests, mean wait, rejections, rejection rate). Joins the operator-hours (this analyzer) with the
- *         core-DRT request outcomes ({@link DrtEventSequenceCollector}); one cross-iteration row is one datapoint on the
- *         empirical production isoquant.</li>
+ *     <li>{@code _incidents} (CSV) — one row per completed incident.</li>
+ *     <li>{@code _incidentStats} (CSV) — per-severity and combined summary of counts, queueing and durations.</li>
+ *     <li>{@code _operatorUtilisation} (CSV and PNG) — the concurrent-busy-operator step function against the operator
+ *         pool. The denominator is the on-duty operator count reconstructed from the operator started and ended events,
+ *         since an incident occupies one operator regardless of its capacity;
+ *         {@link RemoteGuidanceOperators#plannedOnDutyCount(double)} is plotted alongside it as the planned count.</li>
+ *     <li>{@code _operatorHours} (CSV) — planned against actual operator-hours, the gap being the retention overhead.</li>
+ *     <li>{@code _activeVehicles} (CSV and PNG) — the supervised-active count step function against the activation
+ *         capacity {@link RemoteGuidanceOperators#activationCapacityAt(double)}.</li>
+ *     <li>{@code _deactivationReasons} (CSV) — the deactivation-reason breakdown and the activation-churn totals.</li>
+ *     <li>{@code _production} (CSV) — actual operator-hours against passenger-kilometres served and the service-quality
+ *         metrics (served requests, mean wait, rejections, rejection rate), joining this analyzer's operator-hours with
+ *         the request outcomes from {@link DrtEventSequenceCollector}.</li>
+ *     <li>{@code .gpkg} layer {@code incident_hotspots}, written at shutdown — per-link incident count, mean queue delay
+ *         and mean hold duration as point features at the link's to-node.</li>
  * </ul>
- * The cross-iteration {@code _incidentStats}, {@code _operatorHours} and {@code _production} summary rows let a run be
- * tracked over its iterations without post-processing per-iteration files.
- * <p>
- * <b>Not covered</b> (deferred — the events do not yet carry the needed causal link / position): per-trip delay-budget
- * decomposition, incident blast radius, coverage maps of vehicles, and causal rejection attribution.
+ * {@code _incidentStats}, {@code _operatorHours} and {@code _production} additionally append one row per iteration to a
+ * cross-iteration file, so a run can be tracked over its iterations without post-processing the per-iteration files.
  *
  * @author nkuehnel / MOIA
  */
@@ -323,7 +313,7 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 			// coverageCapacity = effective supervision capacity (operators on duty incl. retained past planned end) —
 			// this is the bound the active fleet must always respect. activationCapacity = the planned-window ceiling
 			// for activating NEW vehicles (drops at an operator's planned end, so it can sit below coverage during the
-			// wind-down while retained operators still supervise the vehicles heading home). See D22.
+			// wind-down while retained operators still supervise the vehicles heading home).
 			bw.append(line("time", "activeVehicles", "coverageCapacity", "activationCapacity"));
 			int active = 0;
 			int coverage = 0;
@@ -343,7 +333,7 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 
 		if (pngFile != null) {
 			// coverage is the prominent reference (active <= coverage always holds); the planned ceiling is the thin
-			// dashed secondary line (it may dip below coverage during wind-down — that is D22, not an error).
+			// dashed secondary line; it may dip below coverage during wind-down, which is expected rather than an error.
 			writeStepChart(pngFile, "Remote guidance active vehicles", "# vehicles",
 					List.of(2), // dashed series index: the planned ceiling (series 2)
 					activeSeries, coverageSeries, ceilingSeries);

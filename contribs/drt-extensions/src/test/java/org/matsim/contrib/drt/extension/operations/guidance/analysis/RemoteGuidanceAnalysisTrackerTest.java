@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -140,7 +140,7 @@ public class RemoteGuidanceAnalysisTrackerTest {
 
 		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o1"), 5));
 		tracker.handleEvent(new RemoteGuidanceOperatorStartedEvent(0, MODE, op("o2"), 3));
-		// o1 ends on time; o2 is retained 120s past its planned end (D22 deferral).
+		// o1 ends on time; o2 is retained 120s past its planned end.
 		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(3600, MODE, op("o1"), 3600));
 		tracker.handleEvent(new RemoteGuidanceOperatorEndedEvent(3720, MODE, op("o2"), 3600));
 

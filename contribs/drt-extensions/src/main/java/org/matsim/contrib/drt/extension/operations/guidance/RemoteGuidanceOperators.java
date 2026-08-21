@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -18,24 +18,24 @@ import java.util.Map;
 
 /**
  * The immutable, spec-derived registry of remote guidance operators. An operator is nothing but a {@link DrtShift}
- * whose type equals the configured operator shift type (D15) — there is no wrapper object and no per-vehicle binding.
+ * whose type equals the configured operator shift type. There is no wrapper object and no per-vehicle binding.
  * This registry is the single source of truth for the operator roster and its <em>planned</em> quantities.
  * <p>
  * <b>Spec vs. runtime (deliberate split).</b> This class holds ONLY what the shift specification determines and never
  * changes during a run: each operator's start time, planned end time and passive-supervision capacity κ, and the
  * schedule-derived aggregates over them. It carries <em>no mutable runtime state</em> — the operators' runtime
- * lifecycle (D22 deferred release, incident-busy marking, effective end times) lives in the separate QSim-lifecycle
+ * lifecycle (deferred release, incident-busy marking, effective end times) lives in the separate QSim-lifecycle
  * {@link RemoteGuidanceOperatorState}, which reads this registry for the immutable facts. Because there is no mutable
  * state here, there is nothing to reset between iterations, and this can safely be a single cross-iteration instance.
  * <p>
- * <b>Two capacities (D22).</b> An operator has a <em>planned</em> end and — at runtime — an <em>effective</em> end that
+ * <b>Two capacities.</b> An operator has a <em>planned</em> end and, at runtime, an <em>effective</em> end that
  * may be deferred past it (see {@link RemoteGuidanceOperatorState}) so the coverage invariant "never more vehicles
  * supervised than can be supervised simultaneously" is never broken. The two capacities are therefore:
  * <ul>
- *     <li>{@link #activationCapacityAt(double)} — {@code Σκ} over operators still within their <em>planned</em> window.
+ *     <li>{@link #activationCapacityAt(double)} — the summed capacity of operators still within their <em>planned</em> window.
  *         The ceiling for <em>activating new</em> vehicles: an operator winding down must not pull new vehicles in. This
  *         is a pure spec quantity, hence it lives here.</li>
- *     <li>the coverage capacity — {@code Σκ} over operators on duty in the <em>runtime</em> sense (planned window OR
+ *     <li>the coverage capacity — the summed capacity of operators on duty in the <em>runtime</em> sense (planned window OR
  *         retained past it). This depends on runtime release state and therefore lives in
  *         {@link RemoteGuidanceOperatorState#coverageCapacityAt(double)}.</li>
  * </ul>
@@ -105,7 +105,7 @@ public final class RemoteGuidanceOperators {
 	}
 
 	/**
-	 * @return the activation ceiling {@code Σκ(t)} — the summed capacity of operators still within their planned window
+	 * @return the activation ceiling at {@code t}: the summed capacity of operators still within their planned window
 	 * at {@code now}. Caps how many vehicles may be <em>newly activated</em>; excludes winding-down (pending-release)
 	 * operators. Pure spec quantity (no runtime state).
 	 */
@@ -123,7 +123,7 @@ public final class RemoteGuidanceOperators {
 	 * @return the number of operators whose <em>planned</em> window covers {@code now} (i.e.
 	 * {@code startTime <= now < plannedEndTime}). Depends only on the immutable shift schedule, so it is safe to query
 	 * retroactively for a historical time (e.g. an end-of-iteration utilisation series). This is the incident
-	 * server-pool size — an incident always occupies exactly one operator regardless of κ (D14) — so it is the correct
+	 * server-pool size, since an incident always occupies exactly one operator regardless of its capacity, so it is the correct
 	 * <em>planned</em> utilisation denominator (a numerator that momentarily exceeds it reflects an operator retained
 	 * past its planned end to finish a queued incident).
 	 */
@@ -158,7 +158,7 @@ public final class RemoteGuidanceOperators {
 	}
 
 	/**
-	 * @return the maximum activation capacity {@code Σκ} reached at any point over the operator schedule — the largest
+	 * @return the maximum activation capacity reached at any point over the operator schedule — the largest
 	 * number of vehicles that can ever be supervised simultaneously. Since activation capacity is a step function that
 	 * only changes at operator start / planned-end times, the maximum is attained at one of the operator start times.
 	 * Used only for a config sanity warning (a floor that exceeds this can never be met).

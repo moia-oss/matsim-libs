@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -17,9 +17,9 @@ import org.junit.jupiter.api.Test;
 import org.matsim.contrib.drt.extension.operations.guidance.config.ActivationPolicy;
 
 /**
- * Unit tests for the activation reconciliation (RF6): pure over a hand-built {@link GuidanceState}, no QSim. Documents
+ * Unit tests for the activation reconciliation: pure over a hand-built {@link GuidanceState}, no QSim. Documents
  * both the {@link ActivationReconciler#toEmit} ramp-up decision and the shared {@link ActivationReconciler#desired}
- * target that the deactivation side reads too — the single value that damps the low-demand sawtooth (RF1 / D17).
+ * target that the deactivation side reads too, which is the single value that damps the low-demand sawtooth.
  *
  * @author nkuehnel / MOIA
  */
@@ -27,7 +27,7 @@ public class ActivationReconcilerTest {
 
 	private static final double NOW = 3600.0;
 
-	/** The default RG activation policy: the regulatory floor + one ready buffer, exactly as the runtime builds it. */
+	/** The default RG activation policy: the minimum-fleet floor + one ready buffer, exactly as the runtime builds it. */
 	private static ActivationReconciler defaultReconciler(int minActiveFleet) {
 		return ActivationReconciler.createDefault(minActiveFleet, 1, OptionalDouble.empty());
 	}
@@ -131,7 +131,7 @@ public class ActivationReconcilerTest {
 
 	@Test
 	void desired_floorHoldsTheTargetUpWhenBufferWouldRecallEverything() {
-		// buffer alone would target busy(0) + 1 = 1, but the regulatory floor of 4 holds the shared target at 4, so the
+		// buffer alone would target busy(0) + 1 = 1, but the minimum-fleet floor of 4 holds the shared target at 4, so the
 		// deactivation side keeps 4 active in a full lull — the buffer-vs-floor churn cannot arise because both sides read
 		// this one value.
 		ActivationReconciler r = ActivationReconciler.createDefault(4, 1, OptionalDouble.empty());
@@ -142,7 +142,7 @@ public class ActivationReconcilerTest {
 	@Test
 	void rejectionTrigger_overThreshold_targetsFullCapacity() {
 		// with a rejection trigger at threshold 0.1, a recent rejection rate of 0.3 pushes the target to the full
-		// activation capacity Σκ=10, regardless of the modest buffer/floor — demand pressure wins.
+		// activation capacity of 10, regardless of the modest buffer/floor — demand pressure wins.
 		ActivationReconciler r = ActivationReconciler.createDefault(0, 1, OptionalDouble.of(0.1));
 		GuidanceState state = new GuidanceState(2, 10, 8, 0, 0.3);
 		assertThat(r.desired(state, NOW)).isEqualTo(10);
@@ -168,7 +168,7 @@ public class ActivationReconcilerTest {
 
 	@Test
 	void createFactory_greedyPolicy_fillsCapacity() {
-		// the config-selected 'greedy' policy pulls every idle-at-hub vehicle in, up to Σκ.
+		// the config-selected 'greedy' policy pulls every idle-at-hub vehicle in, up to the capacity ceiling.
 		ActivationReconciler r = ActivationReconciler.create(ActivationPolicy.greedy, 0, 1, OptionalDouble.empty());
 		GuidanceState state = new GuidanceState(2, 10, 8, 0, 0.0);
 		assertThat(r.desired(state, NOW)).isEqualTo(10); // busy target 2+8=10, at ceiling
@@ -177,7 +177,7 @@ public class ActivationReconcilerTest {
 
 	@Test
 	void createFactory_greedyPolicy_stillHonoursFloorButFloorIsDominated() {
-		// greedy already targets the ceiling, so the regulatory floor is dominated but does no harm when set.
+		// greedy already targets the ceiling, so the minimum-fleet floor is dominated but does no harm when set.
 		ActivationReconciler r = ActivationReconciler.create(ActivationPolicy.greedy, 3, 1, OptionalDouble.empty());
 		GuidanceState state = new GuidanceState(0, 10, 2, 0, 0.0);
 		// greedy target = 0+2 = 2; floor = 3 → max = 3; clamped to ceiling 10 → 3
@@ -190,7 +190,7 @@ public class ActivationReconcilerTest {
 		// already targets the ceiling anyway, so this just documents that no RejectionRateActivation is added).
 		ActivationReconciler r = ActivationReconciler.create(ActivationPolicy.greedy, 0, 1, OptionalDouble.of(0.1));
 		GuidanceState state = new GuidanceState(1, 10, 0, 0, 0.3); // rate over threshold, but nothing idle at hub
-		// greedy target = 1+0 = 1 (no idle-at-hub to pull); a wired rejection trigger would have targeted Σκ=10.
+		// greedy target = 1+0 = 1 (no idle-at-hub to pull); a wired rejection trigger would have targeted the capacity ceiling of 10.
 		assertThat(r.desired(state, NOW)).isEqualTo(1);
 	}
 }

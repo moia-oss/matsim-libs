@@ -107,7 +107,7 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 		));
 
 		// deactivation policy: mandatory (driver) shifts never end early; remote guidance recalls vehicles on the
-		// capacityExceeded / idleTimeout triggers (D16/D17)
+		// capacityExceeded / idleTimeout triggers
 		if (drtOperationsParams.getRemoteGuidanceParams().isPresent()) {
 			RemoteGuidanceParams rgParams = drtOperationsParams.getRemoteGuidanceParams().get();
 			double idleTimeout = rgParams.getIdleTimeout();

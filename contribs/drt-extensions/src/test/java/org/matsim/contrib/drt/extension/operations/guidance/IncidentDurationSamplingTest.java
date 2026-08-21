@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -21,7 +21,7 @@ import org.matsim.contrib.drt.extension.operations.guidance.config.IncidentSever
  * DETERMINISTIC must all share the SAME mean {@code exp(mu + sigma^2/2)} (hence the same service rate for the operator
  * M/G/m queue) and differ ONLY in the squared coefficient of variation (SCV = Var/mean^2): LOGNORMAL has
  * {@code exp(sigma^2)-1}, EXPONENTIAL has 1 (memoryless / exact M/M/m), DETERMINISTIC has 0 (M/D/m). If that invariant
- * ever breaks, the Erlang/queueing validation built on it is measuring a sampling bug rather than the distribution
+ * ever breaks, any comparison built on it is measuring a sampling bug rather than the distribution
  * effect — so it is locked in here with a large seeded Monte-Carlo sample.
  *
  * @author nkuehnel / MOIA

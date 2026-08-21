@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -68,7 +68,7 @@ public class IncidentSeverityParams extends ReflectiveConfigGroup {
 			+ "share the SAME mean duration exp(mu + sigma^2/2) - hence the same service rate - and differ only in "
 			+ "variability (SCV). EXPONENTIAL reduces the operator pool to an exact M/M/m queue (SCV=1, memoryless); "
 			+ "DETERMINISTIC gives M/D/m (SCV=0); LOGNORMAL keeps the empirical long tail (SCV=exp(sigma^2)-1). Intended "
-			+ "for controlled queueing/Erlang validation while holding the mean fixed.")
+			+ "for varying the service-time variability while holding the mean fixed.")
 	private DurationDistribution durationDistribution = DurationDistribution.LOGNORMAL;
 
 	public IncidentSeverityParams() {

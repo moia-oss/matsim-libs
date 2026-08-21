@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -18,7 +18,7 @@ import java.util.Map;
  * Fired when a remote guidance operator is actually released, i.e. when it stops contributing to the supervision
  * coverage capacity and the incident server pool. The event {@link #getTime() time} is the operator's <em>effective</em>
  * end, which may be later than its {@link #getPlannedEndTime() planned end}: an operator is retained past its planned
- * end (D22) whenever releasing it earlier would break the coverage invariant or interrupt an incident it is handling.
+ * end whenever releasing it earlier would exceed the remaining supervision capacity or interrupt an incident it is handling.
  * The gap {@code time - plannedEndTime} is therefore the retention (deferral) overhead, directly measurable without an
  * event join. Paired with {@link RemoteGuidanceOperatorStartedEvent} it makes the operators' real on-duty window
  * observable for utilisation analysis.

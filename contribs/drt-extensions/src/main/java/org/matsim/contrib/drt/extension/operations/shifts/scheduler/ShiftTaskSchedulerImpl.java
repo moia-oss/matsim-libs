@@ -157,7 +157,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
                 reservationId.ifPresent(id -> facilityReservationManager.updateReservation(waitForShiftTask.getFacilityId(), id, now, shift.getStartTime()));
 
                 // A shift with a discretionary end (e.g. a remote-guidance virtual shift running to the simulation
-                // horizon, D21) does NOT materialise a changeover/wait tail: the horizon-anchored changeover and its
+                // horizon) does NOT materialise a changeover/wait tail: the horizon-anchored changeover and its
                 // landing reservation would guard nothing, force a spurious end-of-day deadhead to a hub, and add the
                 // rigidity a recall then has to fight. Instead the vehicle simply stays in service until its service
                 // end; the actual end is materialised on demand by the dispatcher's early-end mechanism

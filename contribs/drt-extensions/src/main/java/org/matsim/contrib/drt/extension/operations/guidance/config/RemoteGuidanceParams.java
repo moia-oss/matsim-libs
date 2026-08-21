@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -55,7 +55,7 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 	private double idleTimeout = 900;
 
 	@Parameter
-	@Comment("Activation policy selecting how many vehicles to keep supervised. 'buffered' (default) = regulatory floor "
+	@Comment("Activation policy selecting how many vehicles to keep supervised. 'buffered' (default) = minimum-fleet floor "
 			+ "+ a ready responsiveness buffer (+ demand-driven rejection trigger if configured), damping the low-demand "
 			+ "sawtooth. 'greedy' = the baseline that activates every idle-at-hub vehicle up to capacity regardless of "
 			+ "demand (for comparison runs).")
@@ -63,7 +63,7 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 
 	@Parameter
 	@Comment("Hard floor on the number of active (supervised) vehicles: at least this many are kept active while "
-			+ "activation capacity allows, regardless of demand. Maps to the regulatory minimum-staffing floor. "
+			+ "activation capacity allows, regardless of demand. Sets a lower bound on the supervised fleet. "
 			+ "Defaults to 0 (no floor).")
 	private int minActiveFleet = 0;
 

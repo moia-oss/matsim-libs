@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -99,7 +99,7 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 	public record CoverageChange(double time, int delta) {
 	}
 
-	/** A completed operator duty period: actual end may exceed {@code plannedEndTime} by the D22 retention overhead. */
+	/** A completed operator duty period: the actual end may exceed {@code plannedEndTime} by the retention overhead. */
 	public record OperatorRecord(Id<DrtShift> operatorId, double startTime, double plannedEndTime, double actualEndTime) {
 	}
 

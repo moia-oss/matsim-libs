@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -68,11 +68,11 @@ import java.util.Random;
  *         {@link IncidentAssignmentPolicy} (fire {@link IncidentAssignedToOperatorEvent}).</li>
  * </ol>
  * <p>
- * Incident processing is a fully <em>decoupled</em> M/M/m queue over all operators (Lion, 2026-07-12): an incident
+ * Incident processing is a fully <em>decoupled</em> M/M/m queue over all operators: an incident
  * occupies exactly one free operator for a severity-dependent duration; if none is free it queues and the vehicle keeps
  * holding. Severity steers only the duration, never how much capacity an incident consumes. Crucially, incident
  * processing is independent of passive supervision: the operator pool here is derived from the authoritative
- * {@link RemoteGuidanceOperators} registry (D15) — one M/M/m server per operator — and an incident-busy operator still
+ * {@link RemoteGuidanceOperators} registry, one server per operator, and an incident-busy operator still
  * passively supervises its vehicles.
  * <p>
  * <b>VKT accumulation (step 2)</b> is event-driven, not polled: the dispatcher is a {@link LinkLeaveEventHandler} and
@@ -173,10 +173,10 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 
 	/**
 	 * Builds the independent incident-server pool from the {@link RemoteGuidanceOperators} registry — the single
-	 * authoritative source of the operator roster (D15). Each on-duty operator becomes one M/M/m server, available for
+	 * authoritative source of the operator roster. Each on-duty operator becomes one server, available for
 	 * incident processing during its shift window and busy for the duration of the incident it is currently handling.
 	 * The operator's passive-supervision capacity κ is irrelevant here: an incident always occupies exactly one operator
-	 * regardless of κ (D14), so the server pool is one-per-operator, not one-per-κ.
+	 * regardless of its supervision capacity, so the server pool has one server per operator.
 	 */
 	private void ensureInitialized() {
 		if (initialized) {
@@ -210,7 +210,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 						incident.severity, actualDuration, queued, queueDelay));
 
 				operator.current = null;
-				operatorState.setIncidentBusy(operator.id, false); // free to be released now (D22)
+				operatorState.setIncidentBusy(operator.id, false); // free to be released now
 				activeIncidents.remove(incident.vehicleId);
 			}
 		}
@@ -271,7 +271,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 			incident.serviceEndTime = now + incident.expectedDuration;
 			operator.current = incident;
 			operator.handledCount++;
-			// mark the operator busy in the runtime state: it must not be released mid-incident (D22, no handover)
+			// mark the operator busy in the runtime state: it must not be released mid-incident, there is no handover
 			operatorState.setIncidentBusy(operator.id, true);
 
 			// the operator is now handling the incident: fix the hold's end to the (formerly open) service end and
@@ -307,7 +307,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 	 * Samples an incident duration [s]. All three families share the SAME mean exp(mu + sigma^2/2) - so the service rate
 	 * is held fixed - and differ only in variability: LOGNORMAL keeps the empirical long tail (SCV = exp(sigma^2)-1),
 	 * EXPONENTIAL is memoryless (SCV = 1, reduces the operator pool to an exact M/M/m queue), DETERMINISTIC is constant
-	 * (SCV = 0, M/D/m). This lets a queueing/Erlang validation vary service-time variability while holding the mean.
+	 * (SCV = 0, M/D/m), so the service-time variability can be varied while the mean is held fixed.
 	 */
 	private double sampleDuration(IncidentSeverityParams severityClass) {
 		return sampleDuration(severityClass.getDurationDistribution(), severityClass.getDurationMu(),

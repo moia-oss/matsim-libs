@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026 MOIA GmbH - All Rights Reserved
+ * Copyright (C) 2026 MOIA GmbH
  *
  * You may use, distribute and modify this code under the terms
  * of the GNU General Public License as published by
@@ -16,9 +16,9 @@ import java.util.Map;
 
 /**
  * Fired when a vehicle is activated for remote guidance, i.e. brought into service under the (aggregate) supervision
- * of the remote guidance operator pool by means of a virtual driver shift. This models the extensive margin
- * (activeCount goes up) and carries <em>no</em> operator id: with the operator&harr;vehicle binding removed (D15), a
- * supervised vehicle is not bound to any specific operator — only the aggregate capacity ceiling {@code Σκ(t)} matters.
+ * of the remote guidance operator pool by means of a virtual driver shift. This models the activation margin
+ * (activeCount goes up) and carries <em>no</em> operator id: since there is no operator&harr;vehicle binding, a
+ * supervised vehicle is not bound to any specific operator — only the aggregate capacity ceiling matters.
  *
  * @author nkuehnel / MOIA
  */
