@@ -2,6 +2,9 @@ package org.matsim.contrib.drt.extension.flexibleTransit;
 
 import org.matsim.api.core.v01.Scenario;
 import org.matsim.api.core.v01.network.Network;
+import org.matsim.contrib.drt.extension.flexibleTransit.vehicleSelection.FlexibleTransitVehicleSelectionStrategy;
+import org.matsim.contrib.drt.extension.flexibleTransit.vehicleSelection.LineServiceInsertionTimeCalculator;
+import org.matsim.contrib.drt.extension.flexibleTransit.vehicleSelection.SelectVehicleWithLeastInsertionCosts;
 import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.depot.DepotFinder;
 import org.matsim.contrib.drt.optimizer.insertion.CostCalculationStrategy;
@@ -18,6 +21,7 @@ import org.matsim.contrib.drt.scheduler.EmptyVehicleRelocator;
 import org.matsim.contrib.drt.stops.PassengerStopDurationProvider;
 import org.matsim.contrib.drt.vrpagent.DrtActionCreator;
 import org.matsim.contrib.dvrp.fleet.Fleet;
+import org.matsim.contrib.dvrp.load.DvrpLoad;
 import org.matsim.contrib.dvrp.load.DvrpLoadType;
 import org.matsim.contrib.dvrp.passenger.PassengerEngine;
 import org.matsim.contrib.dvrp.passenger.PassengerHandler;
@@ -31,6 +35,7 @@ import org.matsim.core.config.ConfigGroup;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.mobsim.framework.MobsimTimer;
 import org.matsim.core.router.speedy.SpeedyALTFactory;
+import org.matsim.core.router.util.LeastCostPathCalculator;
 import org.matsim.core.router.util.TravelTime;
 import org.matsim.core.scenario.ScenarioUtils;
 import org.matsim.pt.transitSchedule.api.TransitScheduleReader;
@@ -44,12 +49,23 @@ public class LineServiceQSimModule extends AbstractDvrpModeQSimModule {
     private final boolean enforceMaxWait;
     private final boolean mixed;
 
-    public LineServiceQSimModule(DrtConfigGroup drtCfg, boolean allowOnDemand, boolean enforceMaxWait, boolean mixed) {
+    private final DvrpLoad requiredCapacity;
+
+    /**
+     * //TODO add javadoc
+     * @param drtCfg
+     * @param allowOnDemand
+     * @param enforceMaxWait
+     * @param mixed
+     * @param requiredCapacity The required vehicle capacity (disregarding occupancy!) in order to schedule a line service. Note that vehicle capacities can change over time.
+     */
+    public LineServiceQSimModule(DrtConfigGroup drtCfg, boolean allowOnDemand, boolean enforceMaxWait, boolean mixed, DvrpLoad requiredCapacity) {
         super(drtCfg.getMode());
         this.drtCfg = drtCfg;
         this.allowOnDemand = allowOnDemand;
         this.enforceMaxWait = enforceMaxWait;
         this.mixed = mixed;
+        this.requiredCapacity = requiredCapacity;
     }
 
     @Override
@@ -59,13 +75,33 @@ public class LineServiceQSimModule extends AbstractDvrpModeQSimModule {
         Scenario scenario = ScenarioUtils.createScenario(ConfigUtils.createConfig());
         new TransitScheduleReader(scenario).readURL(url);
 
-        bindModal(LineServiceManager.class).toProvider(modalProvider(getter -> new LineServiceManager(scenario.getTransitSchedule(),
-                getter.getModal(DrtTaskFactory.class), getter.getModal(Network.class),
-                getter.getModal(TravelTime.class), new SpeedyALTFactory().createPathCalculator(getter.getModal(Network.class),
-                new TimeAsTravelDisutility(getter.getModal(TravelTime.class)), getter.getModal(TravelTime.class)),
-                getter.getModal(QsimScopeForkJoinPool.class).getPool(), getter.getModal(VehicleEntry.EntryFactory.class),
-                getter.getModal(Fleet.class),
-                getter.get(EventsManager.class)))
+        bindModal(LineServiceManager.class).toProvider(modalProvider(getter -> {
+
+            TravelTime travelTime = getter.getModal(TravelTime.class);
+            Network network = getter.getModal(Network.class);
+
+            LeastCostPathCalculator router = new SpeedyALTFactory().createPathCalculator(network,
+                    new TimeAsTravelDisutility(travelTime), travelTime);
+
+            //TODO: bind it? (then we will have to reconstrut travelTime+network+router again)
+            // or will we only use this implementation, anyway?
+            FlexibleTransitVehicleSelectionStrategy insertionStrategy =
+                    new SelectVehicleWithLeastInsertionCosts(new LineServiceInsertionTimeCalculator(router, travelTime, network),
+                            network,
+                            this.requiredCapacity);
+
+            return new LineServiceManager(scenario.getTransitSchedule(),
+                    insertionStrategy,
+                    getter.getModal(Network.class),
+                    getter.getModal(TravelTime.class),
+                    router,
+                    getter.getModal(QsimScopeForkJoinPool.class).getPool(),
+                    getter.getModal(VehicleEntry.EntryFactory.class),
+                    getter.getModal(Fleet.class),
+                    getter.get(EventsManager.class),
+                    getter.getModal(DrtTaskFactory.class)
+                    );
+                })
         ).asEagerSingleton();
 
         addModalComponent(DrtOptimizer.class, modalProvider(
@@ -98,17 +134,19 @@ public class LineServiceQSimModule extends AbstractDvrpModeQSimModule {
 
 
         bindModal(VrpAgentLogic.DynActionCreator.class).toProvider(modalProvider(getter -> {
-            PassengerHandler passengerHandler = (PassengerEngine) getter.getModal(PassengerHandler.class);
-            DrtActionCreator delegate = getter.getModal(DrtActionCreator.class);
-            PassengerStopDurationProvider stopDurationProvider = getter.getModal(PassengerStopDurationProvider.class);
-            PrebookingManager prebookingManager = getter.getModal(PrebookingManager.class);
-            AbandonVoter abandonVoter = getter.getModal(AbandonVoter.class);
-            DvrpLoadType loadType = getter.getModal(DvrpLoadType.class);
+            VrpAgentLogic.DynActionCreator delegate = getter.getModal(DrtActionCreator.class);
 
-            PrebookingActionCreator prebookingActionCreator = new PrebookingActionCreator(passengerHandler, delegate, stopDurationProvider, prebookingManager,
-                    abandonVoter, loadType);
+            if (drtCfg.getPrebookingParams().isPresent()) {
+                DvrpLoadType loadType = getter.getModal(DvrpLoadType.class);
+                PassengerStopDurationProvider stopDurationProvider = getter.getModal(PassengerStopDurationProvider.class);
+                PassengerHandler passengerHandler = (PassengerEngine) getter.getModal(PassengerHandler.class);
+                AbandonVoter abandonVoter = getter.getModal(AbandonVoter.class);
+                PrebookingManager prebookingManager = getter.getModal(PrebookingManager.class);
+                delegate = new PrebookingActionCreator(passengerHandler, delegate, stopDurationProvider, prebookingManager,
+                        abandonVoter, loadType);
+            }
 
-            return new FixedStopActivityCreator(prebookingActionCreator, getter.get(EventsManager.class),
+            return new FixedStopActivityCreator(delegate, getter.get(EventsManager.class),
                     getter.get(MobsimTimer.class), getMode(), getter.getModal(LineServiceManager.class));
 
         }));

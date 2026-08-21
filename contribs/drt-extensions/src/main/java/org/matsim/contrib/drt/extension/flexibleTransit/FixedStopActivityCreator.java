@@ -1,7 +1,6 @@
 package org.matsim.contrib.drt.extension.flexibleTransit;
 
 import jakarta.validation.constraints.NotNull;
-import org.matsim.contrib.drt.prebooking.PrebookingActionCreator;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.schedule.Task;
 import org.matsim.contrib.dvrp.vrpagent.VrpAgentLogic;
@@ -14,7 +13,7 @@ import org.matsim.core.mobsim.framework.MobsimTimer;
 
 public class FixedStopActivityCreator implements VrpAgentLogic.DynActionCreator {
 
-    private final PrebookingActionCreator delegate;
+    private final VrpAgentLogic.DynActionCreator delegate;
     private final EventsManager eventsManager;
 
     private final MobsimTimer timer;
@@ -25,7 +24,7 @@ public class FixedStopActivityCreator implements VrpAgentLogic.DynActionCreator 
     /**
      * Constructor for both standard and electric vehicles
      */
-    public FixedStopActivityCreator(PrebookingActionCreator delegate, EventsManager eventsManager, @NotNull MobsimTimer timer, String mode, LineServiceManager lineServiceManager) {
+    public FixedStopActivityCreator(VrpAgentLogic.DynActionCreator delegate, EventsManager eventsManager, @NotNull MobsimTimer timer, String mode, LineServiceManager lineServiceManager) {
         this.delegate = delegate;
         this.eventsManager = eventsManager;
         this.timer = timer;
