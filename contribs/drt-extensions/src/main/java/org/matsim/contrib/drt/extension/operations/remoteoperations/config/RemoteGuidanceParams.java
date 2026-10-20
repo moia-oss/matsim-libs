@@ -98,6 +98,10 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 	@Nullable
 	private RejectionActivationParams rejectionActivationParams;
 
+	// optional: field support agents and their incidents. If absent, there is no field response.
+	@Nullable
+	private FieldSupportParams fieldSupportParams;
+
 	public RemoteGuidanceParams() {
 		super(SET_NAME);
 		// incidents (optional)
@@ -107,6 +111,19 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		addDefinition(RejectionActivationParams.SET_NAME, RejectionActivationParams::new,
 				() -> rejectionActivationParams,
 				params -> rejectionActivationParams = (RejectionActivationParams) params);
+		// field support (optional)
+		addDefinition(FieldSupportParams.SET_NAME, FieldSupportParams::new, () -> fieldSupportParams,
+				params -> fieldSupportParams = (FieldSupportParams) params);
+	}
+
+	public Optional<FieldSupportParams> getFieldSupportParams() {
+		return Optional.ofNullable(fieldSupportParams);
+	}
+
+	/** Whether any incident process is configured, remote or field, which needs the incident-aware insertion. */
+	public boolean hasAnyIncidents() {
+		return incidentParams != null
+				|| (fieldSupportParams != null && fieldSupportParams.getIncidentParams().isPresent());
 	}
 
 	public Optional<IncidentParams> getIncidentParams() {
@@ -197,6 +214,8 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		Verify.verify(minActiveFleet >= 0, "minActiveFleet must not be negative.");
 		Verify.verify(readyBufferSize >= 0, "readyBufferSize must not be negative.");
 		Verify.verify(busyWindowSize >= 0, "busyWindowSize must not be negative.");
+		Verify.verify(fieldSupportParams == null || !fieldSupportParams.getAgentShiftType().equals(operatorShiftType),
+				"the field support agentShiftType must differ from the operatorShiftType.");
 		if (activationPolicy == ActivationPolicy.greedy && rejectionActivationParams != null) {
 			LogManager.getLogger(RemoteGuidanceParams.class).warn("A 'rejectionActivation' config is present but "
 					+ "activationPolicy is 'greedy'; the demand-driven rejection trigger is not wired under the greedy "

@@ -21,10 +21,13 @@ import org.matsim.contrib.drt.extension.operations.remoteoperations.config.Incid
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.IncidentAssignedToOperatorEvent;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.IncidentResolvedEvent;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.IncidentStartedEvent;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.events.RemoteGuidanceOperatorEndedEvent;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.events.RemoteGuidanceOperatorStartedEvent;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.schedule.IncidentHoldTask;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.DrtOperationsTaskFactory;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.schedule.DrtDriveTask;
+import org.matsim.contrib.drt.schedule.DrtTaskType;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.fleet.Fleet;
 import org.matsim.contrib.dvrp.path.VrpPathWithTravelData;
@@ -91,6 +94,12 @@ import java.util.Random;
  * via {@link #extendQueuedHolds}) while the incident waits in the operator queue, then fixed to the service end once an
  * operator is assigned. Resolution needs no schedule surgery: the continuation drive already trails the hold, so the
  * vehicle drives on by itself when the hold ends.
+ * <p>
+ * <b>Pools.</b> One dispatcher serves one labour pool, named on every event it fires ({@link IncidentPools}). The
+ * remote operators' dispatcher leaves the operator lifecycle to the {@code RemoteGuidanceScheduler}. The field support
+ * dispatcher ({@link #forFieldSupport}) runs the same incident process with its own rates and agents, and starts and
+ * releases its agents itself, since they supervise no vehicles. The two run in parallel; a vehicle already being
+ * stopped by one of them is left alone by the other.
  *
  * @author nkuehnel / MOIA
  */
@@ -128,6 +137,15 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 
 	private final Random random = MatsimRandom.getLocalInstance();
 
+	// the labour pool this dispatcher serves, see IncidentPools
+	private final String pool;
+	// whether this dispatcher starts and releases its agents itself (field support), rather than the scheduler
+	private final boolean ownsLifecycle;
+	// task type of the inserted hold, so holds of the pools are told apart in the occupancy profiles
+	private final DrtTaskType holdTaskType;
+	// field incidents drawn when no agent of the pool would ever come again; dropped, see sampleNewIncidents
+	private int uncoveredDraws = 0;
+
 	// runtime state
 	private final Map<Id<DrtShift>, OperatorServer> operators = new LinkedHashMap<>();
 	private final Deque<Incident> queue = new ArrayDeque<>();
@@ -144,6 +162,18 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 							  RemoteGuidanceOperatorState operatorState, Fleet fleet, EventsManager eventsManager,
 							  MobsimTimer timer, ScheduleTimingUpdater scheduleTimingUpdater, Network network,
 							  TravelTime travelTime, DrtOperationsTaskFactory taskFactory) {
+		this(mode, params, operatorRegistry, operatorState, fleet, eventsManager, timer, scheduleTimingUpdater, network,
+				travelTime, taskFactory, IncidentPools.REMOTE_GUIDANCE, false, IncidentHoldTask.TYPE);
+	}
+
+	private IncidentDispatcher(String mode, IncidentParams params, RemoteGuidanceOperators operatorRegistry,
+							   RemoteGuidanceOperatorState operatorState, Fleet fleet, EventsManager eventsManager,
+							   MobsimTimer timer, ScheduleTimingUpdater scheduleTimingUpdater, Network network,
+							   TravelTime travelTime, DrtOperationsTaskFactory taskFactory, String pool,
+							   boolean ownsLifecycle, DrtTaskType holdTaskType) {
+		this.pool = pool;
+		this.ownsLifecycle = ownsLifecycle;
+		this.holdTaskType = holdTaskType;
 		this.mode = mode;
 		this.params = params;
 		this.operatorRegistry = operatorRegistry;
@@ -158,6 +188,19 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 		this.router = new SpeedyALTFactory().createPathCalculator(network, new TimeAsTravelDisutility(travelTime), travelTime);
 	}
 
+	/**
+	 * The dispatcher of the field support pool: the same incident process over the agents of {@code agents}, which it
+	 * starts and releases itself with a runtime state of its own, created per QSim.
+	 */
+	public static IncidentDispatcher forFieldSupport(String mode, IncidentParams params, RemoteGuidanceOperators agents,
+													 Fleet fleet, EventsManager eventsManager, MobsimTimer timer,
+													 ScheduleTimingUpdater scheduleTimingUpdater, Network network,
+													 TravelTime travelTime, DrtOperationsTaskFactory taskFactory) {
+		return new IncidentDispatcher(mode, params, agents, new RemoteGuidanceOperatorState(agents), fleet,
+				eventsManager, timer, scheduleTimingUpdater, network, travelTime, taskFactory,
+				IncidentPools.FIELD_SUPPORT, true, IncidentHoldTask.FIELD_SUPPORT_TYPE);
+	}
+
 	@Override
 	public void notifyMobsimBeforeSimStep(@SuppressWarnings("rawtypes") MobsimBeforeSimStepEvent e) {
 		dispatch(e.getSimulationTime());
@@ -165,10 +208,39 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 
 	void dispatch(double now) {
 		ensureInitialized();
+		if (ownsLifecycle) {
+			startAgents(now);
+		}
 		resolveDueIncidents(now);
 		sampleNewIncidents(now);
 		assignQueuedIncidents(now);
 		extendQueuedHolds(now);
+		if (ownsLifecycle) {
+			releaseAgents(now);
+		}
+	}
+
+	/** Starts the agents whose planned start has been reached; only for a pool that owns its lifecycle. */
+	private void startAgents(double now) {
+		for (RemoteGuidanceOperators.Operator started : operatorState.markStarted(now)) {
+			eventsManager.processEvent(new RemoteGuidanceOperatorStartedEvent(now, mode, started.id(),
+					started.capacity(), pool));
+		}
+	}
+
+	/**
+	 * Releases the agents past their planned end that hold no incident. They supervise no vehicles, so nothing else
+	 * keeps them; an agent busy at its planned end finishes the incident first, and while incidents still queue no agent
+	 * is released, so the last ones on duty work the queue off instead of leaving vehicles held for ever.
+	 */
+	private void releaseAgents(double now) {
+		if (!queue.isEmpty()) {
+			return;
+		}
+		for (RemoteGuidanceOperators.Operator released : operatorState.releaseElapsedOperators(now, 0)) {
+			eventsManager.processEvent(new RemoteGuidanceOperatorEndedEvent(now, mode, released.id(),
+					released.plannedEndTime(), pool));
+		}
 	}
 
 	/**
@@ -189,7 +261,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 			// mobsim vehicle id string == dvrp vehicle id string (VrpAgentSource); map both ways for the handler + drain
 			fleetVehicleIds.put(Id.create(dvrpVehicleId, Vehicle.class), dvrpVehicleId);
 		}
-		logger.info("Initialized incident processing with {} operator servers and {} severity classes.",
+		logger.info("Initialized {} incident processing with {} servers and {} severity classes.", pool,
 				operators.size(), params.getSeverityParams().size());
 		initialized = true;
 	}
@@ -207,7 +279,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 				// so the vehicle drives on by itself once the hold end (== now) is reached.
 
 				eventsManager.processEvent(new IncidentResolvedEvent(now, mode, incident.vehicleId, operator.id,
-						incident.severity, actualDuration, queued, queueDelay));
+						incident.severity, actualDuration, queued, queueDelay, pool));
 
 				operator.current = null;
 				operatorState.setIncidentBusy(operator.id, false); // free to be released now
@@ -221,6 +293,9 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 	 * driven this step, so the per-step incident probability for class s is {@code 1 - exp(-lambda_s * deltaMeters)}.
 	 */
 	private void sampleNewIncidents(double now) {
+		// a pool that owns its lifecycle (field support) may end its day while vehicles still drive: an incident drawn
+		// after the last agent's planned end would wait for an agent who never comes, so it is dropped and counted
+		boolean covered = !ownsLifecycle || hasFutureCapacity(now);
 		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
 			if (activeIncidents.containsKey(vehicle.getId())) {
 				continue; // a vehicle already holding does not accrue new incidents
@@ -233,7 +308,12 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 			for (IncidentSeverityParams severityClass : params.getSeverityParams()) {
 				double p = 1.0 - Math.exp(-severityClass.getLambdaPerMeter() * deltaMeters);
 				if (random.nextDouble() < p) {
-					startIncident(vehicle, severityIndex, severityClass, now);
+					if (covered) {
+						startIncident(vehicle, severityIndex, severityClass, now);
+					} else if (uncoveredDraws++ == 0) {
+						logger.warn("{}: incidents drawn after the last agent's shift are dropped; widen the agents'"
+								+ " window to cover the whole operating day.", pool);
+					}
 					break; // at most one incident per vehicle per step
 				}
 				severityIndex++;
@@ -255,7 +335,22 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 		queue.addLast(incident);
 
 		eventsManager.processEvent(new IncidentStartedEvent(now, mode, vehicle.getId(), severityIndex, duration,
-				holdTask.getLink().getId()));
+				holdTask.getLink().getId(), pool));
+	}
+
+	/** Whether some agent of the pool is within or before its planned shift at {@code now}. */
+	private boolean hasFutureCapacity(double now) {
+		for (OperatorServer operator : operators.values()) {
+			if (now < operator.operator.plannedEndTime()) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Incidents dropped because no agent of the pool would come again; 0 for remote guidance. */
+	public int getUncoveredDraws() {
+		return uncoveredDraws;
 	}
 
 	/** Assigns queued incidents to free operators (FIFO over the queue), one per free operator, per the policy. */
@@ -279,7 +374,7 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 			setHoldEnd(incident, incident.serviceEndTime);
 
 			eventsManager.processEvent(new IncidentAssignedToOperatorEvent(now, mode, incident.vehicleId, operator.id,
-					incident.severity));
+					incident.severity, pool));
 		}
 	}
 
@@ -375,6 +470,10 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 				|| !(driveTask.getTaskTracker() instanceof OnlineDriveTaskTracker tracker)) {
 			return null;
 		}
+		int nextIdx = driveTask.getTaskIdx() + 1;
+		if (nextIdx < schedule.getTaskCount() && schedule.getTasks().get(nextIdx) instanceof IncidentHoldTask) {
+			return null; // already being stopped this step by the other pool's dispatcher
+		}
 		LinkTimePair diversionPoint = tracker.getDiversionPoint();
 		if (diversionPoint == null) {
 			return null; // too late to divert (already committed to the last link) — retry on a later draw
@@ -392,7 +491,8 @@ public final class IncidentDispatcher implements MobsimBeforeSimStepListener, Li
 		// the hold is kept "just past now" and pushed forward step by step (see extendQueuedHolds) until assigned. We
 		// deliberately do NOT use a far-future end — that would push a shift vehicle's trailing WaitForShiftTask past
 		// its service end and trip the timing verifier.
-		IncidentHoldTask holdTask = taskFactory.createIncidentHoldTask(vehicle, holdBegin, holdBegin + 1, diversionPoint.link);
+		IncidentHoldTask holdTask = taskFactory.createIncidentHoldTask(vehicle, holdBegin, holdBegin + 1,
+				diversionPoint.link, holdTaskType);
 		int holdIdx = driveTask.getTaskIdx() + 1;
 		schedule.addTask(holdIdx, holdTask);
 

@@ -7,7 +7,14 @@ import org.matsim.contrib.common.zones.systems.grid.square.SquareGridZoneSystemP
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsControlerCreator;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.config.FieldSupportParams;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.config.IncidentParams;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.events.AbstractRemoteGuidanceEvent;
+import org.matsim.contrib.drt.extension.operations.shifts.events.DrtShiftStartedEvent;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.config.IncidentSeverityParams;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.config.RejectionActivationParams;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.config.RemoteGuidanceParams;
@@ -102,17 +109,73 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		assertThat(trackers.incidentTracker.resolved).isPositive();
 	}
 
-	private record Trackers(ConcurrencyTracker tracker, IncidentTracker incidentTracker) {
+	private static final double FIELD_LAMBDA_PER_METER = 2e-5;
+	private static final double FIELD_MEDIAN_SECONDS = 2700;
+	private static final double FIELD_START = 6 * 3600.;
+	private static final double FIELD_END = 20 * 3600.;
+
+	/**
+	 * Field support in parallel to remote guidance: two field agents in the same shift file under their own type, and a
+	 * rare, long field incident class. The pools must stay apart: field incidents go to field agents only, remote ones
+	 * to operators only, at most two field incidents are handled at once, none starts outside the agents' window, and
+	 * the field shifts are neither handed to vehicles nor counted as supervision capacity.
+	 */
+	@Test
+	void fieldSupportRunsInParallelToRemoteGuidance() {
+		String outputDirectory = "test/output/RunRemoteGuidanceDrtScenarioIT_fieldSupport";
+		Path shifts = writeShiftsWithFieldAgents(Path.of(outputDirectory + "_input"));
+		Trackers trackers = runScenario(1e-4, outputDirectory, shifts.toAbsolutePath().toUri().toString());
+		IncidentTracker remote = trackers.incidentTracker;
+		IncidentTracker field = trackers.fieldTracker;
+
+		assertThat(field.started).as("field incidents").isPositive();
+		assertThat(field.resolved).as("field incidents resolved").isPositive();
+		assertThat(field.started).as("field incidents are rarer").isLessThan(remote.started);
+		assertThat(field.maxConcurrentInService).as("two field agents").isLessThanOrEqualTo(2);
+		assertThat(field.wrongPool).as("field incidents handled by an operator").isZero();
+		assertThat(remote.wrongPool).as("remote incidents handled by a field agent").isZero();
+		assertThat(field.minAssignTime).isGreaterThanOrEqualTo(FIELD_START);
+		assertThat(field.meanHandling()).as("field incidents take longer").isGreaterThan(remote.meanHandling());
+		assertThat(trackers.tracker.maxConcurrent).as("field agents add no supervision capacity")
+				.isLessThanOrEqualTo(MAX_CONCURRENT_OPERATORS * OPERATOR_CAPACITY);
+		assertThat(trackers.tracker.fieldShiftsOnVehicles).as("field shifts handed to vehicles").isZero();
+	}
+
+	private static Path writeShiftsWithFieldAgents(Path directory) {
+		try {
+			Files.createDirectories(directory);
+			Path file = directory.resolve("shifts.xml");
+			Files.writeString(file, """
+					<shifts>
+						<shift id="operator_0" start="14400" end="50400" type="remoteGuidance"/>
+						<shift id="operator_1" start="18000" end="45000" type="remoteGuidance"/>
+						<shift id="operator_2" start="43200" end="72000" type="remoteGuidance"/>
+						<shift id="operator_3" start="46800" end="79200" type="remoteGuidance"/>
+						<shift id="field_0" start="%1$.0f" end="%2$.0f" type="fieldSupport"/>
+						<shift id="field_1" start="%1$.0f" end="%2$.0f" type="fieldSupport"/>
+					</shifts>
+					""".formatted(FIELD_START, FIELD_END));
+			return file;
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	private record Trackers(ConcurrencyTracker tracker, IncidentTracker incidentTracker, IncidentTracker fieldTracker) {
 	}
 
 	private Trackers runScenario(double lambdaPerMeter, String outputDirectory) {
+		return runScenario(lambdaPerMeter, outputDirectory, null);
+	}
+
+	private Trackers runScenario(double lambdaPerMeter, String outputDirectory, String fieldShiftsFile) {
 		MultiModeDrtConfigGroup multiModeDrtConfigGroup = new MultiModeDrtConfigGroup(DrtWithExtensionsConfigGroup::new);
 
 		String fleetFile = "holzkirchenFleet.xml";
 		String plansFile = "holzkirchenPlans.xml.gz";
 		String networkFile = "holzkirchenNetwork.xml.gz";
 		String opFacilitiesFile = "holzkirchenOperationFacilities.xml";
-		String shiftsFile = "holzkirchenRemoteGuidanceShifts.xml";
+		String shiftsFile = fieldShiftsFile != null ? fieldShiftsFile : "holzkirchenRemoteGuidanceShifts.xml";
 
 		DrtWithExtensionsConfigGroup drtCfg = (DrtWithExtensionsConfigGroup) multiModeDrtConfigGroup.createParameterSet("drt");
 
@@ -226,6 +289,21 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		incidentParams.addParameterSet(severityParams);
 		remoteGuidanceParams.addParameterSet(incidentParams);
 
+		if (fieldShiftsFile != null) {
+			FieldSupportParams fieldParams = (FieldSupportParams) remoteGuidanceParams
+					.createParameterSet(FieldSupportParams.SET_NAME);
+			IncidentParams fieldIncidents = (IncidentParams) fieldParams.createParameterSet(IncidentParams.SET_NAME);
+			IncidentSeverityParams fieldClass = (IncidentSeverityParams) fieldIncidents
+					.createParameterSet(IncidentSeverityParams.SET_NAME);
+			fieldClass.setSeverityName("field");
+			fieldClass.setLambdaPerMeter(FIELD_LAMBDA_PER_METER);
+			fieldClass.setDurationMu(Math.log(FIELD_MEDIAN_SECONDS));
+			fieldClass.setDurationSigma(0.3);
+			fieldIncidents.addParameterSet(fieldClass);
+			fieldParams.addParameterSet(fieldIncidents);
+			remoteGuidanceParams.addParameterSet(fieldParams);
+		}
+
 		// demand-driven activation (opt-in): exercises the RejectionRateActivation trigger + the shared RejectionRateTracker
 		// wiring across both margins. A low threshold so any rejection pressure in the small scenario engages the trigger.
 		RejectionActivationParams rejectionActivationParams = (RejectionActivationParams) remoteGuidanceParams
@@ -244,18 +322,20 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		final Controler controler = DrtOperationsControlerCreator.createControler(config, false);
 
 		ConcurrencyTracker tracker = new ConcurrencyTracker();
-		IncidentTracker incidentTracker = new IncidentTracker();
+		IncidentTracker incidentTracker = new IncidentTracker(IncidentPools.REMOTE_GUIDANCE, "operator");
+		IncidentTracker fieldTracker = new IncidentTracker(IncidentPools.FIELD_SUPPORT, "field");
 		controler.addOverridingModule(new AbstractModule() {
 			@Override
 			public void install() {
 				addEventHandlerBinding().toInstance(tracker);
 				addEventHandlerBinding().toInstance(incidentTracker);
+				addEventHandlerBinding().toInstance(fieldTracker);
 			}
 		});
 
 		controler.run();
 
-		return new Trackers(tracker, incidentTracker);
+		return new Trackers(tracker, incidentTracker, fieldTracker);
 	}
 
 	/**
@@ -265,6 +345,7 @@ public class RunRemoteGuidanceDrtScenarioIT {
 		private final Set<Id<DvrpVehicle>> supervised = new HashSet<>();
 		private int maxConcurrent = 0;
 		private int totalAssignments = 0;
+		private int fieldShiftsOnVehicles = 0;
 
 		@Override
 		public void handleEvent(org.matsim.api.core.v01.events.Event event) {
@@ -274,6 +355,9 @@ public class RunRemoteGuidanceDrtScenarioIT {
 				maxConcurrent = Math.max(maxConcurrent, supervised.size());
 			} else if (event instanceof VehicleDeactivatedForRemoteGuidanceEvent deactivated) {
 				supervised.remove(deactivated.getVehicleId());
+			} else if (event instanceof DrtShiftStartedEvent shiftStarted
+					&& shiftStarted.getShiftId().toString().startsWith("field")) {
+				fieldShiftsOnVehicles++;
 			}
 		}
 
@@ -282,6 +366,7 @@ public class RunRemoteGuidanceDrtScenarioIT {
 			supervised.clear();
 			maxConcurrent = 0;
 			totalAssignments = 0;
+			fieldShiftsOnVehicles = 0;
 		}
 	}
 
@@ -290,23 +375,45 @@ public class RunRemoteGuidanceDrtScenarioIT {
 	 * service (assigned but not yet resolved), which must never exceed the operator server pool.
 	 */
 	private static final class IncidentTracker implements BasicEventHandler {
+		private final String pool;
+		private final String agentPrefix;
+		private int wrongPool = 0;
+		private double minAssignTime = Double.POSITIVE_INFINITY;
+		private double handlingSum = 0;
 		private int started = 0;
 		private int assigned = 0;
 		private int resolved = 0;
 		private int inService = 0;
 		private int maxConcurrentInService = 0;
 
+		private IncidentTracker(String pool, String agentPrefix) {
+			this.pool = pool;
+			this.agentPrefix = agentPrefix;
+		}
+
+		private double meanHandling() {
+			return resolved == 0 ? Double.NaN : handlingSum / resolved;
+		}
+
 		@Override
 		public void handleEvent(org.matsim.api.core.v01.events.Event event) {
+			if (event instanceof AbstractRemoteGuidanceEvent incident && !pool.equals(incident.getPool())) {
+				return;
+			}
 			if (event instanceof IncidentStartedEvent) {
 				started++;
-			} else if (event instanceof IncidentAssignedToOperatorEvent) {
+			} else if (event instanceof IncidentAssignedToOperatorEvent assignedEvent) {
 				assigned++;
 				inService++;
 				maxConcurrentInService = Math.max(maxConcurrentInService, inService);
-			} else if (event instanceof IncidentResolvedEvent) {
+				minAssignTime = Math.min(minAssignTime, event.getTime());
+				if (!assignedEvent.getOperatorId().toString().startsWith(agentPrefix)) {
+					wrongPool++;
+				}
+			} else if (event instanceof IncidentResolvedEvent resolvedEvent) {
 				resolved++;
 				inService--;
+				handlingSum += resolvedEvent.getActualDuration() - resolvedEvent.getQueueDelay();
 			}
 		}
 
@@ -317,6 +424,9 @@ public class RunRemoteGuidanceDrtScenarioIT {
 			resolved = 0;
 			inService = 0;
 			maxConcurrentInService = 0;
+			wrongPool = 0;
+			minAssignTime = Double.POSITIVE_INFINITY;
+			handlingSum = 0;
 		}
 	}
 }

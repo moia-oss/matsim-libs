@@ -9,6 +9,7 @@
 package org.matsim.contrib.drt.extension.operations.remoteoperations.events;
 
 import org.matsim.api.core.v01.Id;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.IncidentPools;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 
@@ -38,7 +39,12 @@ public class IncidentAssignedToOperatorEvent extends AbstractRemoteGuidanceEvent
 
 	public IncidentAssignedToOperatorEvent(double time, String mode, Id<DvrpVehicle> vehicleId,
 										   Id<DrtShift> operatorId, int severity) {
-		super(time, mode, operatorId, vehicleId);
+		this(time, mode, vehicleId, operatorId, severity, IncidentPools.REMOTE_GUIDANCE);
+	}
+
+	public IncidentAssignedToOperatorEvent(double time, String mode, Id<DvrpVehicle> vehicleId,
+										   Id<DrtShift> operatorId, int severity, String pool) {
+		super(time, mode, operatorId, vehicleId, pool);
 		this.severity = severity;
 	}
 

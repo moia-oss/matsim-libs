@@ -3,6 +3,8 @@ package org.matsim.contrib.drt.extension.operations;
 import org.matsim.api.core.v01.Scenario;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.edrt.run.EDrtControlerCreator;
+import org.matsim.contrib.drt.extension.operations.huboperations.analysis.HubCleaningAnalysisModeModule;
+import org.matsim.contrib.drt.extension.operations.huboperations.analysis.LaborStatsModeModule;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.analysis.RemoteGuidanceAnalysisModeModule;
 import org.matsim.contrib.drt.extension.operations.eshifts.run.ShiftEDrtModeOptimizerQSimModule;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilitiesModeModule;
@@ -48,6 +50,8 @@ public class EDrtOperationsControlerCreator {
 			controler.addOverridingQSimModule(new OperationFacilitiesQSimModule(drtCfg));
 			controler.addOverridingModule(new DrtShiftEfficiencyModeModule(drtCfg));
 			controler.addOverridingModule(new RemoteGuidanceAnalysisModeModule(drtCfg));
+			controler.addOverridingModule(new HubCleaningAnalysisModeModule(drtCfg));
+			controler.addOverridingModule(new LaborStatsModeModule(drtCfg));
 		}
 
 		controler.addOverridingQSimModule(new AbstractQSimModule() {

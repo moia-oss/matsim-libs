@@ -2,6 +2,7 @@ package org.matsim.contrib.drt.extension.operations.shifts.schedule;
 
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
+import org.matsim.contrib.drt.schedule.DrtTaskType;
 import org.matsim.contrib.common.util.reservation.ReservationManager;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.schedule.IncidentHoldTask;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacility;
@@ -33,4 +34,12 @@ public interface DrtOperationsTaskFactory extends DrtTaskFactory {
      * for an electric vehicle the factory sets that auxiliary consumption, for a non-electric vehicle it is zero.
      */
     IncidentHoldTask createIncidentHoldTask(DvrpVehicle vehicle, double beginTime, double endTime, Link link);
+
+    /** As {@link #createIncidentHoldTask(DvrpVehicle, double, double, Link)}, with the hold's task type. */
+    default IncidentHoldTask createIncidentHoldTask(DvrpVehicle vehicle, double beginTime, double endTime, Link link,
+                                                    DrtTaskType type) {
+        IncidentHoldTask hold = createIncidentHoldTask(vehicle, beginTime, endTime, link);
+        return type.equals(hold.getTaskType()) ? hold
+                : new IncidentHoldTask(type, beginTime, endTime, link, hold.getTotalEnergy());
+    }
 }

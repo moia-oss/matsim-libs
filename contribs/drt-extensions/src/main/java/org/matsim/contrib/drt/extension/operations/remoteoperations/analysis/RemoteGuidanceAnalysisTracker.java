@@ -13,6 +13,8 @@ import org.matsim.api.core.v01.events.Event;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.IncidentAssignedToOperatorEvent;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.IncidentResolvedEvent;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.IncidentPools;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.events.AbstractRemoteGuidanceEvent;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.IncidentStartedEvent;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.RemoteGuidanceOperatorEndedEvent;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.RemoteGuidanceOperatorStartedEvent;
@@ -58,6 +60,8 @@ import java.util.Map;
 public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 
 	private final String mode;
+	// the incident pool whose incident and agent events this tracker reads, see IncidentPools
+	private final String pool;
 
 	// incidents still holding (not yet resolved), keyed by vehicle: a held vehicle has at most one open incident.
 	private Map<Id<DvrpVehicle>, OpenIncident> openIncidents = new HashMap<>();
@@ -78,7 +82,17 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 	private Map<Id<DrtShift>, Integer> operatorCapacities = new HashMap<>();
 
 	public RemoteGuidanceAnalysisTracker(String mode) {
+		this(mode, IncidentPools.REMOTE_GUIDANCE);
+	}
+
+	/** A tracker of the incidents and agents of {@code pool}, e.g. {@link IncidentPools#FIELD_SUPPORT}. */
+	public RemoteGuidanceAnalysisTracker(String mode, String pool) {
 		this.mode = mode;
+		this.pool = pool;
+	}
+
+	public String getPool() {
+		return pool;
 	}
 
 	/** A single completed incident lifecycle, all times absolute seconds. */
@@ -122,6 +136,15 @@ public final class RemoteGuidanceAnalysisTracker implements BasicEventHandler {
 
 	@Override
 	public void handleEvent(Event event) {
+		if (event instanceof AbstractRemoteGuidanceEvent incident && !pool.equals(incident.getPool())) {
+			return; // an incident of the other pool
+		}
+		if (event instanceof RemoteGuidanceOperatorStartedEvent agent && !pool.equals(agent.getPool())) {
+			return;
+		}
+		if (event instanceof RemoteGuidanceOperatorEndedEvent agent && !pool.equals(agent.getPool())) {
+			return;
+		}
 		if (event instanceof IncidentStartedEvent started) {
 			if (started.getMode().equals(mode)) {
 				openIncidents.put(started.getVehicleId(), new OpenIncident(started.getSeverity(), started.getLinkId(),

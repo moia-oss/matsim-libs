@@ -1,5 +1,7 @@
 package org.matsim.contrib.drt.extension.operations.eshifts.run;
 
+import org.matsim.core.api.experimental.events.EventsManager;
+import org.matsim.contrib.dvrp.fleet.Fleet;
 import com.google.inject.Singleton;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
@@ -8,6 +10,15 @@ import org.matsim.contrib.drt.extension.edrt.optimizer.EDrtVehicleDataEntryFacto
 import org.matsim.contrib.drt.extension.edrt.schedule.EDrtTaskFactoryImpl;
 import org.matsim.contrib.drt.extension.edrt.scheduler.EmptyVehicleChargingScheduler;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.huboperations.CleaningDispatcher;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubAwareVehicleDataEntryFactory;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubVisitRegistry;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubWorkers;
+import org.matsim.contrib.drt.extension.operations.huboperations.charging.FleetSlackMonitor;
+import org.matsim.contrib.drt.extension.operations.huboperations.charging.HubChargingPolicy;
+import org.matsim.contrib.drt.extension.operations.huboperations.config.HubChargingSlackParams;
+import org.matsim.contrib.drt.extension.operations.huboperations.config.HubOperationsParams;
+import org.matsim.contrib.drt.extension.operations.huboperations.SoilingTracker;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.optimizer.IncidentAwareVehicleDataEntryFactory;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilities;
@@ -30,6 +41,7 @@ import org.matsim.contrib.dvrp.load.DvrpLoadType;
 import org.matsim.contrib.dvrp.passenger.PassengerHandler;
 import org.matsim.contrib.dvrp.run.AbstractDvrpModeQSimModule;
 import org.matsim.contrib.dvrp.run.DvrpConfigGroup;
+import org.matsim.contrib.dvrp.schedule.ScheduleInquiry;
 import org.matsim.contrib.dvrp.schedule.ScheduleTimingUpdater;
 import org.matsim.contrib.dvrp.vrpagent.VrpAgentLogic;
 import org.matsim.contrib.dvrp.vrpagent.VrpLegFactory;
@@ -66,13 +78,25 @@ public class ShiftEDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule
 		// taken out of the insertion pool entirely (an IncidentHoldTask spliced mid-drive is not a valid insertion
 		// waypoint and would otherwise trip the core scheduler's removeBetween verifier).
 		boolean hasIncidents = drtOperationsParams.getRemoteGuidanceParams()
-				.flatMap(RemoteGuidanceParams::getIncidentParams).isPresent();
+				.map(RemoteGuidanceParams::hasAnyIncidents).orElse(false);
+		boolean hasHubOperations = drtOperationsParams.getHubOperationsParams().isPresent();
 		bindModal(VehicleEntry.EntryFactory.class).toProvider(modalProvider(getter -> {
+			// dispatch SOC gate: with hub operations configurable (MoiaConfig.minRelativeSocForDispatch in the MOIA
+			// eDRT stack), otherwise 0 as before
+			double minSocForDispatch = drtOperationsParams.getHubOperationsParams()
+					.map(HubOperationsParams::getMinSocForDispatch).orElse(0.);
 			VehicleEntry.EntryFactory factory = new ShiftVehicleDataEntryFactory(
-					new EDrtVehicleDataEntryFactory(0, getter.getModal(DvrpLoadType.class),
+					new EDrtVehicleDataEntryFactory(minSocForDispatch, getter.getModal(DvrpLoadType.class),
 							getter.getModal(StopWaypointFactory.class)),
 					drtShiftParams.isConsiderUpcomingShiftsForInsertion());
-			return hasIncidents ? new IncidentAwareVehicleDataEntryFactory(factory) : factory;
+			if (hasIncidents) {
+				factory = new IncidentAwareVehicleDataEntryFactory(factory);
+			}
+			// same as the non-electric module: a vehicle due at the hub takes no new riders, so it empties and can go
+			if (hasHubOperations) {
+				factory = new HubAwareVehicleDataEntryFactory(factory, getter.getModal(SoilingTracker.class));
+			}
+			return factory;
 		})).asEagerSingleton();
 
 		bindModal(DrtTaskFactory.class).toProvider(modalProvider(getter ->
@@ -97,6 +121,50 @@ public class ShiftEDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule
 						getter.getModal(ChargingStrategy.Factory.class),
 						getter.getModal(ChargingInfrastructure.class)
 						))).asEagerSingleton();
+
+		// hub operations with charging: hub workers plug the vehicles in and out, so the shift stack must not charge on
+		// its own as well. The dispatcher is rebound here because only this module knows the charging infrastructure.
+		drtOperationsParams.getHubOperationsParams().ifPresent(hubParams -> {
+			boolean hubCharging = hubParams.getChargeSocThreshold() > 0;
+			if (hubCharging && (drtShiftParams.getChargeAtHubThreshold() > 0
+					|| drtShiftParams.getChargeDuringBreakThreshold() > 0)) {
+				throw new IllegalStateException("hub charging (hubOperations.chargeSocThreshold > 0) replaces the shift"
+						+ " charging: set shifts.chargeAtHubThreshold and shifts.chargeDuringBreakThreshold to 0, or set"
+						+ " hubOperations.chargeSocThreshold to 0");
+			}
+			// The charging policy is the one point that differs between the plain threshold and the fleet-slack aware
+			// controller; the tracker, the dispatcher and the early release share it through these bindings, so no
+			// construction is copied. Without batteries the non-electric module's tracker with the threshold stays.
+			if (hubCharging && hubParams.getChargingSlackParams().isPresent()) {
+				HubChargingSlackParams slackParams = hubParams.getChargingSlackParams().get();
+				bindModal(FleetSlackMonitor.class).toProvider(modalProvider(getter -> new FleetSlackMonitor(
+						getter.getModal(Fleet.class), getter.getModal(ScheduleInquiry.class), slackParams,
+						CleaningDispatcher.inServiceForSlack(getter.getModal(HubVisitRegistry.class)))))
+						.in(Singleton.class);
+				bindModal(SoilingTracker.class).toProvider(modalProvider(getter -> new SoilingTracker(
+						hubParams.getSoilingThresholdPkm(), hubParams.getExteriorSoilingThresholdVkm(),
+						HubChargingPolicy.fleetSlack(slackParams, getter.getModal(FleetSlackMonitor.class)),
+						hubParams.getBundlingShare()).withMaintenance(
+							hubParams.getMaintenanceThresholdVkm()))).in(Singleton.class);
+			}
+			addModalComponent(CleaningDispatcher.class, modalProvider(getter -> {
+				CleaningDispatcher dispatcher = new CleaningDispatcher(
+						getMode(), hubParams, getter.getModal(SoilingTracker.class), getter.getModal(Fleet.class),
+						getter.getModal(Network.class), getter.getModal(OperationFacilityFinder.class),
+						getter.getModal(DrtTaskFactory.class), getter.getModal(ScheduleTimingUpdater.class),
+						getter.get(EventsManager.class), getter.get(MobsimTimer.class), getter.getModal(TravelTime.class),
+						HubWorkers.readValidated(hubParams, getConfig().getContext(),
+								getter.getModal(OperationFacilities.class)),
+						getter.getModal(HubVisitRegistry.class), getter.getModal(OperationFacilities.class),
+						hubCharging ? getter.getModal(ChargingInfrastructure.class) : null,
+						hubCharging ? getter.getModal(ChargingStrategy.Factory.class) : null);
+				if (hubCharging && hubParams.getChargingSlackParams().isPresent()) {
+					dispatcher.withEarlyRelease(getter.getModal(FleetSlackMonitor.class),
+							hubParams.getChargingSlackParams().get());
+				}
+				return dispatcher;
+			}));
+		});
 
 		// See EDrtModeOptimizerQSimModule
 		bindModal(VrpLegFactory.class).toProvider(modalProvider(getter -> {

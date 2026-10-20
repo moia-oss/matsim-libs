@@ -3,6 +3,7 @@ package org.matsim.contrib.drt.extension.operations.shifts.schedule;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Id;
+import org.matsim.contrib.drt.extension.operations.huboperations.schedule.CleaningTask;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.schedule.IncidentHoldTask;
 import org.matsim.contrib.drt.extension.operations.shifts.config.ShiftsParams;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftBreak;
@@ -65,6 +66,12 @@ public class ShiftDrtStayTaskEndTimeCalculator implements ScheduleTimingUpdater.
             // delegate below would otherwise collapse the hold to zero duration (it has no passengers to board), and
             // anchoring to anything else would fight the dispatcher's dynamic end. Cf. WaitForShiftTask above.
             return Math.max(newBeginTime, task.getEndTime());
+        }
+        if (task instanceof CleaningTask) {
+            // A planned cleaning that is delayed keeps its full duration, whatever the stop time calculator does for
+            // passenger stops. Once started, its end is owned by the CleaningDispatcher (open while the vehicle waits for a
+            // hub worker) and the current task is not re-timed here.
+            return newBeginTime + (task.getEndTime() - task.getBeginTime());
         }
         if (task instanceof ShiftBreakTask) {
             final DrtShiftBreak shiftBreak = ((ShiftBreakTask) task).getShiftBreak();

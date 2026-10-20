@@ -4,7 +4,16 @@ import com.google.inject.Singleton;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.FieldSupportAgents;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.FieldSupportIncidentDispatcher;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.IncidentDispatcher;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.config.FieldSupportParams;
+import org.matsim.contrib.drt.extension.operations.huboperations.CleaningDispatcher;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubAwareVehicleDataEntryFactory;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubAwareAssignShiftToVehicleLogic;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubVisitRegistry;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubWorkers;
+import org.matsim.contrib.drt.extension.operations.huboperations.SoilingTracker;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.optimizer.IncidentAwareVehicleDataEntryFactory;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceOperatorState;
@@ -15,6 +24,9 @@ import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidan
 import org.matsim.contrib.drt.extension.operations.remoteoperations.activation.ActivationReconciler;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilities;
+import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilityType;
+import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacility;
+import org.matsim.contrib.drt.extension.operations.huboperations.config.HubOperationsParams;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilityFinder;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilityReservationManager;
 import org.matsim.contrib.drt.extension.operations.shifts.config.ShiftsParams;
@@ -102,8 +114,10 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 							getter.getModal(ScheduleTimingUpdater.class));
 				}));
 
+		// a vehicle on a hub visit (cleaning, charging) gets no shift until the visit is over
 		bindModal(AssignShiftToVehicleLogic.class).toProvider(modalProvider(getter ->
-				(new AssignShiftToVehicleLogicImpl(shiftsParams))
+				new HubAwareAssignShiftToVehicleLogic(new AssignShiftToVehicleLogicImpl(shiftsParams),
+						getter.getModal(HubVisitRegistry.class))
 		));
 
 		// deactivation policy: mandatory (driver) shifts never end early; remote guidance recalls vehicles on the
@@ -123,7 +137,7 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 					getter.getModal(Fleet.class), getter.getModal(RemoteGuidanceOperators.class), idleTimeout,
 					recallLeadTime, reconciler,
 					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null,
-					getter.getModal(BusyWindowTracker.class))));
+					getter.getModal(BusyWindowTracker.class)).withHubVisits(getter.getModal(HubVisitRegistry.class))));
 		} else {
 			bindModal(ShiftEndLogic.class).toInstance(ShiftEndLogic.NEVER);
 		}
@@ -145,6 +159,44 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 					addMobsimScopeEventHandlerBinding().to(modalKey(IncidentDispatcher.class));
 				});
 
+		// field support incidents (optional, the "fieldSupport" set of remoteGuidance): the same incident process with its
+		// own rates and its own agents, in parallel to the remote one. Its dispatcher type is a subclass key, so both
+		// dispatchers can be bound as modal components of one mode.
+		drtOperationsParams.getRemoteGuidanceParams()
+				.flatMap(RemoteGuidanceParams::getFieldSupportParams)
+				.flatMap(FieldSupportParams::getIncidentParams)
+				.ifPresent(fieldIncidents -> {
+					addModalComponent(FieldSupportIncidentDispatcher.class, modalProvider(getter ->
+							new FieldSupportIncidentDispatcher(IncidentDispatcher.forFieldSupport(getMode(), fieldIncidents,
+									getter.getModal(FieldSupportAgents.class).registry(), getter.getModal(Fleet.class),
+									getter.get(EventsManager.class), getter.get(MobsimTimer.class),
+									getter.getModal(ScheduleTimingUpdater.class), getter.getModal(Network.class),
+									getter.getModal(TravelTime.class), getter.getModal(DrtOperationsTaskFactory.class)))));
+					addMobsimScopeEventHandlerBinding().to(modalKey(FieldSupportIncidentDispatcher.class));
+				});
+
+		// interior cleaning (optional, opt-in via the "hubOperations" config set): vehicles accrue soiling per passenger
+		// km and return to the nearest hub once due. Like the incident dispatcher it is a sim-step listener AND an event
+		// handler (pickups, dropoffs, link leaves), so it is registered via both seams. The tracker is bound separately
+		// because the entry factory below reads it too.
+		drtOperationsParams.getHubOperationsParams().ifPresent(hubParams -> {
+			bindModal(SoilingTracker.class).toProvider(modalProvider(getter ->
+					new SoilingTracker(hubParams.getSoilingThresholdPkm(), hubParams.getExteriorSoilingThresholdVkm(),
+							hubParams.getChargeSocThreshold(), hubParams.getBundlingShare()).withMaintenance(
+							hubParams.getMaintenanceThresholdVkm()))).in(Singleton.class);
+			// without batteries there is no hub charging; ShiftEDrtModeOptimizerQSimModule rebinds the dispatcher with
+			// the charging infrastructure for electric fleets
+			addModalComponent(CleaningDispatcher.class, modalProvider(getter -> new CleaningDispatcher(
+					getMode(), hubParams, getter.getModal(SoilingTracker.class), getter.getModal(Fleet.class),
+					getter.getModal(Network.class), getter.getModal(OperationFacilityFinder.class),
+					getter.getModal(DrtTaskFactory.class), getter.getModal(ScheduleTimingUpdater.class),
+					getter.get(EventsManager.class), getter.get(MobsimTimer.class), getter.getModal(TravelTime.class),
+					HubWorkers.readValidated(hubParams, getConfig().getContext(),
+							getter.getModal(OperationFacilities.class)),
+					getter.getModal(HubVisitRegistry.class), getter.getModal(OperationFacilities.class), null, null)));
+			addMobsimScopeEventHandlerBinding().to(modalKey(CleaningDispatcher.class));
+		});
+
 		bindModal(DrtShiftDispatcher.class).toProvider(modalProvider(
 				getter -> new DrtShiftDispatcherImpl(getMode(), getter.getModal(Fleet.class), getter.get(MobsimTimer.class),
 						getter.getModal(OperationFacilities.class), getter.getModal(OperationFacilityFinder.class),
@@ -163,13 +215,21 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 		// taken out of the insertion pool entirely (an IncidentHoldTask spliced mid-drive is not a valid insertion
 		// waypoint and would otherwise trip the core scheduler's removeBetween verifier).
 		boolean hasIncidents = drtOperationsParams.getRemoteGuidanceParams()
-				.flatMap(RemoteGuidanceParams::getIncidentParams).isPresent();
+				.map(RemoteGuidanceParams::hasAnyIncidents).orElse(false);
+		boolean hasHubOperations = drtOperationsParams.getHubOperationsParams().isPresent();
 		bindModal(VehicleEntry.EntryFactory.class).toProvider(modalProvider(getter -> {
 			DvrpLoadType loadType = getter.getModal(DvrpLoadType.class);
 			VehicleEntry.EntryFactory factory = new ShiftVehicleDataEntryFactory(
 					new VehicleDataEntryFactoryImpl(loadType, getter.getModal(StopWaypointFactory.class)),
 					shiftsParams.isConsiderUpcomingShiftsForInsertion());
-			return hasIncidents ? new IncidentAwareVehicleDataEntryFactory(factory) : factory;
+			if (hasIncidents) {
+				factory = new IncidentAwareVehicleDataEntryFactory(factory);
+			}
+			// a vehicle due for cleaning takes no new riders, so it empties and can be sent to the hub
+			if (hasHubOperations) {
+				factory = new HubAwareVehicleDataEntryFactory(factory, getter.getModal(SoilingTracker.class));
+			}
+			return factory;
 		}));
 
 		bindModal(DrtTaskFactory.class).toProvider(modalProvider(getter ->  new DrtOperationsTaskFactoryImpl(

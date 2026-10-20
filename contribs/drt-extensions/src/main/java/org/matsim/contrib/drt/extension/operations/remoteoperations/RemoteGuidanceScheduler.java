@@ -26,6 +26,7 @@ import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DefaultShif
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.ShiftScheduler;
 import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftSchedules;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubVisitRegistry;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftImpl;
@@ -101,6 +102,15 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	// [arrival, serviceEnd] reservation and does not depend on this offset.
 	private double virtualShiftEndTime = Double.NaN;
 
+	// vehicles on a hub visit (cleaning, charging) are not available for activation; empty without hub operations
+	private HubVisitRegistry hubVisits = new HubVisitRegistry();
+
+	/** Excludes vehicles on a hub visit from the idle-at-hub activation source. */
+	public RemoteGuidanceScheduler withHubVisits(HubVisitRegistry hubVisits) {
+		this.hubVisits = hubVisits;
+		return this;
+	}
+
 	public RemoteGuidanceScheduler(ShiftScheduler delegate, RemoteGuidanceOperators operators,
 								   RemoteGuidanceOperatorState operatorState, RemoteGuidanceParams params,
 								   EventsManager eventsManager, String mode, double changeoverDuration,
@@ -130,10 +140,11 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// coverage. The immutable spec registry needs no reset.
 		operatorState.reset();
 
-		// operator shifts define capacity only (via the registry) and are NOT handed to the dispatcher for assignment
+		// operator shifts define capacity only (via the registry) and are NOT handed to the dispatcher for assignment;
+		// neither are field support shifts, whose agents are a separate incident pool
 		ImmutableMap.Builder<Id<DrtShift>, DrtShift> driverShifts = ImmutableMap.builder();
 		for (DrtShift shift : delegate.initialSchedule().values()) {
-			if (!isOperatorShift(shift)) {
+			if (!isOperatorShift(shift) && !isFieldSupportShift(shift)) {
 				driverShifts.put(shift.getId(), shift);
 			}
 		}
@@ -278,7 +289,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 				// no shift assigned at all: out of service, waiting at a hub, so available for activation. Any queued
 				// shift, started or not, virtual or a driver shift, makes the vehicle unavailable, which is why this
 				// keys on the empty queue rather than on the absence of a started virtual shift.
-				if (currentTask instanceof WaitForShiftTask) {
+				if (currentTask instanceof WaitForShiftTask && !hubVisits.isOnVisit(vehicle.getId())) {
 					idleAtHub++;
 				}
 			} else if (startedVirtualShift(shiftVehicle).isPresent()) {
@@ -337,6 +348,12 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 
 	private boolean isOperatorShift(DrtShift shift) {
 		return shift.getShiftType().map(params.getOperatorShiftType()::equals).orElse(false);
+	}
+
+	private boolean isFieldSupportShift(DrtShift shift) {
+		return params.getFieldSupportParams()
+				.map(f -> shift.getShiftType().map(f.getAgentShiftType()::equals).orElse(false))
+				.orElse(false);
 	}
 
 	static boolean isVirtualShift(DrtShift shift) {

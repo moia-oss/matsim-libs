@@ -12,10 +12,15 @@ import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector;
 import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.FieldSupportAgents;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.IncidentPools;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceOperators;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
 import org.matsim.contrib.dvrp.run.AbstractDvrpModeModule;
 import org.matsim.core.controler.MatsimServices;
+
+import java.util.Optional;
 
 /**
  * Installs the remote-guidance operator-utilisation analysis: a controller-scoped
@@ -36,10 +41,10 @@ public class RemoteGuidanceAnalysisModeModule extends AbstractDvrpModeModule {
 
 	@Override
 	public void install() {
-		boolean remoteGuidance = ((DrtWithExtensionsConfigGroup) drtConfigGroup).getDrtOperationsParams()
-				.flatMap(DrtOperationsParams::getRemoteGuidanceParams)
-				.isPresent();
-		if (!remoteGuidance) {
+		Optional<RemoteGuidanceParams> remoteGuidance = ((DrtWithExtensionsConfigGroup) drtConfigGroup)
+				.getDrtOperationsParams()
+				.flatMap(DrtOperationsParams::getRemoteGuidanceParams);
+		if (remoteGuidance.isEmpty()) {
 			return;
 		}
 
@@ -56,5 +61,24 @@ public class RemoteGuidanceAnalysisModeModule extends AbstractDvrpModeModule {
 						getter.getModal(Network.class),
 						getter.get(MatsimServices.class))));
 		addControllerListenerBinding().to(modalKey(RemoteGuidanceAnalysisControlerListener.class));
+
+		// field support (L_F): the same incident outputs as drt_fieldSupport_*, from a tracker of its own pool
+		if (remoteGuidance.get().getFieldSupportParams().isPresent()) {
+			bindModal(FieldSupportAnalysisTracker.class).toProvider(modalProvider(getter -> new FieldSupportAnalysisTracker(
+					new RemoteGuidanceAnalysisTracker(getMode(), IncidentPools.FIELD_SUPPORT)))).asEagerSingleton();
+			addEventHandlerBinding().toProvider(modalProvider(
+					getter -> getter.getModal(FieldSupportAnalysisTracker.class).tracker()));
+			addControllerListenerBinding().toProvider(modalProvider(getter ->
+					new RemoteGuidanceAnalysisControlerListener(drtConfigGroup,
+							getter.getModal(FieldSupportAnalysisTracker.class).tracker(),
+							getter.getModal(FieldSupportAgents.class).registry(),
+							getter.getModal(DrtEventSequenceCollector.class),
+							getter.getModal(Network.class),
+							getter.get(MatsimServices.class))));
+		}
+	}
+
+	/** Binding key of the field support tracker, next to the remote-guidance one. */
+	public record FieldSupportAnalysisTracker(RemoteGuidanceAnalysisTracker tracker) {
 	}
 }

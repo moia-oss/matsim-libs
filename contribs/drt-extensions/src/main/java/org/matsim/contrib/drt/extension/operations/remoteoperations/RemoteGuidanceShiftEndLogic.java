@@ -15,6 +15,7 @@ import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DrtShiftDis
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.ShiftEndLogic;
 import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftSchedules;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubVisitRegistry;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.schedule.DrtStayTask;
@@ -65,6 +66,8 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 	private final BusyWindowTracker busyWindowTracker;
 
 	private double lastComputedTime = Double.NaN;
+	// vehicles on a hub visit are not an activation source; empty without hub operations
+	private HubVisitRegistry hubVisits = new HubVisitRegistry();
 	private Set<Id<DrtShift>> recallSet = new HashSet<>();
 
 	public RemoteGuidanceShiftEndLogic(Fleet fleet, RemoteGuidanceOperators operators, double idleTimeout,
@@ -77,6 +80,12 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 		this.reconciler = reconciler;
 		this.rejectionRateTracker = rejectionRateTracker;
 		this.busyWindowTracker = busyWindowTracker;
+	}
+
+	/** Excludes vehicles on a hub visit from the idle-at-hub count, as {@link RemoteGuidanceScheduler} does. */
+	public RemoteGuidanceShiftEndLogic withHubVisits(HubVisitRegistry hubVisits) {
+		this.hubVisits = hubVisits;
+		return this;
 	}
 
 	@Override
@@ -115,7 +124,8 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 				active.add(shiftVehicle);
 			} else if (shiftVehicle.getShifts().isEmpty()
 					&& vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED
-					&& vehicle.getSchedule().getCurrentTask() instanceof WaitForShiftTask) {
+					&& vehicle.getSchedule().getCurrentTask() instanceof WaitForShiftTask
+					&& !hubVisits.isOnVisit(vehicle.getId())) {
 				// out of service and waiting at a hub, i.e. an activation source for the GuidanceState below
 				idleAtHub++;
 			}

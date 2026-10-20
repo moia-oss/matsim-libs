@@ -3,6 +3,7 @@ package org.matsim.contrib.drt.extension.operations.shifts.run;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Provider;
+import org.matsim.contrib.drt.extension.operations.huboperations.HubVisitRegistry;
 import com.google.inject.Singleton;
 import com.google.inject.TypeLiteral;
 import org.matsim.contrib.common.timeprofile.ProfileWriter;
@@ -10,6 +11,7 @@ import org.matsim.contrib.drt.extension.DrtWithExtensionsConfigGroup;
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.BusyWindowTracker;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RejectionRateTracker;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.FieldSupportAgents;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceOperatorState;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceScheduler;
@@ -101,6 +103,10 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 			new DrtShiftsReader(drtShiftsSpecification).parse(shiftsParams.getShiftInputUrl(getConfig().getContext()));
 		}
 
+		// vehicles on a hub visit (hub operations) are kept out of shift assignment and remote-guidance activation. The
+		// registry is controller-scoped because the remote-guidance scheduler is; it stays empty without hub operations.
+		bindModal(HubVisitRegistry.class).toInstance(new HubVisitRegistry());
+
 		if (drtOperationsParams.getRemoteGuidanceParams().isPresent()) {
 			RemoteGuidanceParams remoteGuidanceParams = drtOperationsParams.getRemoteGuidanceParams().get();
 			// authoritative runtime registry of operators and their aggregate capacity; shared by the scheduler (activation
@@ -109,6 +115,12 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 					drtShiftsSpecification, remoteGuidanceParams.getOperatorShiftType(),
 					remoteGuidanceParams.getDefaultOperatorCapacity());
 			bindModal(RemoteGuidanceOperators.class).toInstance(remoteGuidanceOperators);
+			// field support agents (L_F): a second pool from the same shift file, by its own shift type. They supervise
+			// no vehicles (capacity 0), so they add nothing to the activation ceiling; the field incident dispatcher in the
+			// QSim scope serves them.
+			remoteGuidanceParams.getFieldSupportParams().ifPresent(fieldParams -> bindModal(FieldSupportAgents.class)
+					.toInstance(new FieldSupportAgents(RemoteGuidanceOperators.fromSpecification(drtShiftsSpecification,
+							fieldParams.getAgentShiftType(), 0))));
 			// per-run runtime lifecycle of the operators (released / incident-busy / effective end); split out of the
 			// immutable registry so nothing mutable lives on the cross-iteration spec. Re-initialised each iteration in
 			// RemoteGuidanceScheduler.initialSchedule(). A single instance shared by the scheduler (controller scope) and
@@ -136,7 +148,7 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 					getter.getModal(RemoteGuidanceOperatorState.class), remoteGuidanceParams,
 					getter.get(EventsManager.class), getMode(), shiftsParams.getChangeoverDuration(),
 					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null,
-					getter.getModal(BusyWindowTracker.class))));
+					getter.getModal(BusyWindowTracker.class)).withHubVisits(getter.getModal(HubVisitRegistry.class))));
 		} else {
 			bindModal(ShiftScheduler.class).toProvider(modalProvider(getter -> new DefaultShiftScheduler(drtShiftsSpecification)));
 		}

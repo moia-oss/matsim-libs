@@ -28,6 +28,7 @@ import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector;
 import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector.EventSequence;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.IncidentPools;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceOperators;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.analysis.RemoteGuidanceAnalysisTracker.ActivationChange;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.analysis.RemoteGuidanceAnalysisTracker.CoverageChange;
@@ -66,7 +67,8 @@ import java.util.stream.Collectors;
 /**
  * Writes the remote guidance analysis outputs per iteration, from the raw data accumulated by
  * {@link RemoteGuidanceAnalysisTracker}. All file names are prefixed with {@code drt_remoteGuidance_} and suffixed with
- * the mode:
+ * the mode, or for the field support pool with {@code drt_fieldSupport_}, which has the incident, utilisation and hours
+ * outputs only, as its agents supervise no vehicles:
  * <ul>
  *     <li>{@code _incidents} (CSV) — one row per completed incident.</li>
  *     <li>{@code _incidentStats} (CSV) — per-severity and combined summary of counts, queueing and durations.</li>
@@ -99,6 +101,11 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 	private final DrtEventSequenceCollector requestCollector;
 	private final Network network;
 	private final MatsimServices matsimServices;
+	// file prefix and chart title of the pool: drt_remoteGuidance_ for the operators, drt_fieldSupport_ for field support
+	private final String filePrefix;
+	private final String title;
+	// whether the pool supervises vehicles; field support does not, so it has no activation outputs
+	private final boolean supervision;
 
 	private final String delimiter;
 	private final String runId;
@@ -124,6 +131,10 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		this.requestCollector = requestCollector;
 		this.network = network;
 		this.matsimServices = matsimServices;
+		boolean field = IncidentPools.FIELD_SUPPORT.equals(tracker.getPool());
+		this.filePrefix = field ? "drt_fieldSupport_" : "drt_remoteGuidance_";
+		this.title = field ? "Field support" : "Remote guidance";
+		this.supervision = !field;
 		this.delimiter = matsimServices.getConfig().global().getDefaultDelimiter();
 		this.runId = Optional.ofNullable(matsimServices.getConfig().controller().getRunId()).orElse(NA);
 	}
@@ -142,12 +153,15 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		writeOperatorUtilisation(incidents, tracker.getOperatorChanges(),
 				filename(event, "operatorUtilisation", ".csv"),
 				createGraphs ? filename(event, "operatorUtilisation", ".png") : null);
+		writeOperatorHours(tracker.getOperatorRecords(), event.getIteration(),
+				filename(event, "operatorHours", ".csv"));
+		if (!supervision) {
+			return; // field agents supervise no vehicles: no activation, recall or production outputs
+		}
 		writeActiveVehicles(tracker.getActivationChanges(), tracker.getCoverageChanges(),
 				filename(event, "activeVehicles", ".csv"),
 				createGraphs ? filename(event, "activeVehicles", ".png") : null);
 		writeDeactivationReasons(filename(event, "deactivationReasons", ".csv"));
-		writeOperatorHours(tracker.getOperatorRecords(), event.getIteration(),
-				filename(event, "operatorHours", ".csv"));
 		writeProduction(tracker.getOperatorRecords(), event.getIteration(),
 				filename(event, "production", ".csv"));
 	}
@@ -283,7 +297,7 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		}
 
 		if (pngFile != null) {
-			writeStepChart(pngFile, "Remote guidance operator utilisation", "# operators", busySeries, onDutySeries,
+			writeStepChart(pngFile, title + " operator utilisation", "# operators", busySeries, onDutySeries,
 					plannedSeries);
 		}
 	}
@@ -461,7 +475,7 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 		Collection<SimpleFeature> features = incidentHotspotFeatures(lastIterationIncidents, network, crs);
 		if (!features.isEmpty()) {
 			String fileName = matsimServices.getControllerIO()
-					.getOutputFilename("drt_remoteGuidance_" + drtConfigGroup.getMode() + ".gpkg");
+					.getOutputFilename(filePrefix + drtConfigGroup.getMode() + ".gpkg");
 			GeoFileWriter.writeGeometries(features, fileName, new NameImpl(INCIDENT_HOTSPOT_LAYER));
 		}
 	}
@@ -586,12 +600,12 @@ public final class RemoteGuidanceAnalysisControlerListener implements IterationE
 
 	private String filename(IterationEndsEvent event, String prefix, String extension) {
 		return matsimServices.getControllerIO().getIterationFilename(event.getIteration(),
-				"drt_remoteGuidance_" + prefix + "_" + drtConfigGroup.getMode() + extension);
+				filePrefix + prefix + "_" + drtConfigGroup.getMode() + extension);
 	}
 
 	private BufferedWriter getAppendingBufferedWriter(String prefix, String extension) {
 		return IOUtils.getAppendingBufferedWriter(matsimServices.getControllerIO()
-				.getOutputFilename("drt_remoteGuidance_" + prefix + "_" + drtConfigGroup.getMode() + extension));
+				.getOutputFilename(filePrefix + prefix + "_" + drtConfigGroup.getMode() + extension));
 	}
 
 	private String line(Object... cells) {

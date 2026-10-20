@@ -10,6 +10,7 @@ package org.matsim.contrib.drt.extension.operations.remoteoperations.events;
 
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.events.Event;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.IncidentPools;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 
 import java.util.Map;
@@ -36,12 +37,24 @@ public class RemoteGuidanceOperatorEndedEvent extends Event {
 	private final String mode;
 	private final Id<DrtShift> operatorId;
 	private final double plannedEndTime;
+	private final String pool;
 
 	public RemoteGuidanceOperatorEndedEvent(double time, String mode, Id<DrtShift> operatorId, double plannedEndTime) {
+		this(time, mode, operatorId, plannedEndTime, IncidentPools.REMOTE_GUIDANCE);
+	}
+
+	public RemoteGuidanceOperatorEndedEvent(double time, String mode, Id<DrtShift> operatorId, double plannedEndTime,
+											String pool) {
 		super(time);
 		this.mode = mode;
 		this.operatorId = operatorId;
 		this.plannedEndTime = plannedEndTime;
+		this.pool = pool;
+	}
+
+	/** The labour pool of the agent, see {@link IncidentPools}. */
+	public String getPool() {
+		return pool;
 	}
 
 	public String getMode() {
@@ -67,6 +80,7 @@ public class RemoteGuidanceOperatorEndedEvent extends Event {
 		Map<String, String> attr = super.getAttributes();
 		attr.put(ATTRIBUTE_MODE, mode);
 		attr.put(ATTRIBUTE_OPERATOR_ID, operatorId + "");
+		attr.put("pool", pool);
 		attr.put(ATTRIBUTE_PLANNED_END_TIME, Double.toString(plannedEndTime));
 		return attr;
 	}

@@ -10,6 +10,7 @@ package org.matsim.contrib.drt.extension.operations.remoteoperations.events;
 
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.IncidentPools;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 
 import java.util.Map;
@@ -40,7 +41,12 @@ public class IncidentStartedEvent extends AbstractRemoteGuidanceEvent {
 
 	public IncidentStartedEvent(double time, String mode, Id<DvrpVehicle> vehicleId,
 								int severity, double expectedDuration, Id<Link> linkId) {
-		super(time, mode, null, vehicleId);
+		this(time, mode, vehicleId, severity, expectedDuration, linkId, IncidentPools.REMOTE_GUIDANCE);
+	}
+
+	public IncidentStartedEvent(double time, String mode, Id<DvrpVehicle> vehicleId,
+								int severity, double expectedDuration, Id<Link> linkId, String pool) {
+		super(time, mode, null, vehicleId, pool);
 		this.severity = severity;
 		this.expectedDuration = expectedDuration;
 		this.linkId = linkId;

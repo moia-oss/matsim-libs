@@ -51,6 +51,9 @@ public class IncidentHoldTask extends DefaultStayTask implements DrtStopTask, ET
 
 	public static final DrtTaskType TYPE = new DrtTaskType("INCIDENT_HOLD", STOP);
 
+	/** Type of a hold for an incident handled by field support, so the two pools show apart in the profiles. */
+	public static final DrtTaskType FIELD_SUPPORT_TYPE = new DrtTaskType("FIELD_SUPPORT_HOLD", STOP);
+
 	private final double consumedEnergy;
 
 	public IncidentHoldTask(double beginTime, double endTime, Link link) {
@@ -58,7 +61,12 @@ public class IncidentHoldTask extends DefaultStayTask implements DrtStopTask, ET
 	}
 
 	public IncidentHoldTask(double beginTime, double endTime, Link link, double consumedEnergy) {
-		super(TYPE, beginTime, endTime, link);
+		this(TYPE, beginTime, endTime, link, consumedEnergy);
+	}
+
+	/** A hold of the given type, {@link #TYPE} for remote guidance or {@link #FIELD_SUPPORT_TYPE}. */
+	public IncidentHoldTask(DrtTaskType type, double beginTime, double endTime, Link link, double consumedEnergy) {
+		super(type, beginTime, endTime, link);
 		this.consumedEnergy = consumedEnergy;
 	}
 
