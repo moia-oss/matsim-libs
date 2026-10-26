@@ -196,6 +196,11 @@ public class DefaultRequestInsertionScheduler implements RequestInsertionSchedul
 		int dropoffIdx = insertion.dropoff.index;
 		var detourData = insertionWithDetourData.detourData;
 
+		// Get the selected pickup link from the insertion (not from request, which may have multiple candidates)
+		Link pickupLink = insertion.pickup.newWaypoint.getLink();
+		// Get the selected dropoff link for use when pickup == dropoff index
+		Link dropoffLink = insertion.dropoff.newWaypoint.getLink();
+
 		ScheduleStatus scheduleStatus = schedule.getStatus();
 		Task currentTask = scheduleStatus == ScheduleStatus.PLANNED ? null : schedule.getCurrentTask();
 		Task beforePickupTask;

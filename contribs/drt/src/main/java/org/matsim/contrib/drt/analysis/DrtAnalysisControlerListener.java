@@ -56,6 +56,7 @@ import org.matsim.contrib.dvrp.load.DvrpLoadType;
 import org.matsim.contrib.dvrp.optimizer.Request;
 import org.matsim.contrib.dvrp.passenger.PassengerPickedUpEvent;
 import org.matsim.contrib.dvrp.passenger.PassengerRequestRejectedEvent;
+import org.matsim.contrib.dvrp.passenger.PassengerRequestScheduledEvent;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.groups.QSimConfigGroup;
 import org.matsim.core.controler.MatsimServices;
@@ -134,14 +135,15 @@ public class DrtAnalysisControlerListener implements IterationEndsListener, Shut
 		Preconditions.checkArgument(sequence.isCompleted());
 		List<DrtLeg> legs = new ArrayList<>();
 		DrtRequestSubmittedEvent submittedEvent = sequence.getSubmitted();
+		PassengerRequestScheduledEvent scheduledEvent = sequence.getScheduled().orElseThrow();
 
 		Map<Id<Person>, EventSequence.PersonEvents> personEvents = sequence.getPersonEvents();
 
 		var request = submittedEvent.getRequestId();
 		var submissionTime = submittedEvent.getTime();
-		var fromLinkId = submittedEvent.getFromLinkId();
+		var fromLinkId = scheduledEvent.getPickupLink();
 		var fromCoord = linkProvider.apply(fromLinkId).getToNode().getCoord();
-		var toLinkId = submittedEvent.getToLinkId();
+		var toLinkId = scheduledEvent.getDropoffLink();
 		var toCoord = linkProvider.apply(toLinkId).getToNode().getCoord();
 		var unsharedDistanceEstimate_m = submittedEvent.getUnsharedRideDistance();
 		var unsharedTimeEstimate = submittedEvent.getUnsharedRideTime();

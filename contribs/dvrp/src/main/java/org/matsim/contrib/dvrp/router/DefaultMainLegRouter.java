@@ -19,6 +19,7 @@
 
 package org.matsim.contrib.dvrp.router;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.matsim.api.core.v01.network.Link;
@@ -48,6 +49,15 @@ public class DefaultMainLegRouter implements RoutingModule {
 		 */
 		Route createRoute(double departureTime, Link accessActLink, Link egressActLink, Person person,
 				Attributes tripAttributes, RouteFactories routeFactories);
+
+		/**
+		 * Creates a route based on basic trip characteristics (departure time, potential origin
+		 * and destination locations) and potential person- or trip-based requirements.
+		 */
+		default Route createRoute(double departureTime, List<Link> accessActLinks, List<Link> egressActLinks, Person person,
+				Attributes tripAttributes, RouteFactories routeFactories) {
+			return createRoute(departureTime, accessActLinks.getFirst(), egressActLinks.getFirst(), person, tripAttributes, routeFactories);
+		};
 	}
 
 	private final String mode;
@@ -65,21 +75,34 @@ public class DefaultMainLegRouter implements RoutingModule {
 
 	@Override
 	public List<? extends PlanElement> calcRoute(RoutingRequest request) {
-		final Facility fromFacility = request.getFromFacility();
-		final Facility toFacility = request.getToFacility();
 		final double departureTime = request.getDepartureTime();
-		
-		Link accessActLink = Preconditions.checkNotNull(modalNetwork.getLinks().get(fromFacility.getLinkId()),
-				"link: %s does not exist in the network of mode: %s", fromFacility.getLinkId(), mode);
-		Link egressActLink = Preconditions.checkNotNull(modalNetwork.getLinks().get(toFacility.getLinkId()),
-				"link: %s does not exist in the network of mode: %s", toFacility.getLinkId(), mode);
-		Route route = routeCreator.createRoute(departureTime, accessActLink, egressActLink,
-				request.getPerson(), request.getAttributes(), populationFactory.getRouteFactories());
 
-		Leg leg = populationFactory.createLeg(mode);
-		leg.setDepartureTime(departureTime);
-		leg.setTravelTime(route.getTravelTime().seconds());
-		leg.setRoute(route);
-		return ImmutableList.of(leg);
+		if(request instanceof DvrpRoutingRequest dvrpRoutingRequest) {
+
+			List<Link> fromLinks = new ArrayList<>();
+			for (Facility f : dvrpRoutingRequest.getFromFacilities()) {
+				Link link = Preconditions.checkNotNull(modalNetwork.getLinks().get(f.getLinkId()),
+						"link: %s does not exist in the network of mode: %s", f.getLinkId(), mode);
+				fromLinks.add(link);
+			}
+
+			List<Link> toLinks = new ArrayList<>();
+			for (Facility f : dvrpRoutingRequest.getToFacilities()) {
+				Link link = Preconditions.checkNotNull(modalNetwork.getLinks().get(f.getLinkId()),
+						"link: %s does not exist in the network of mode: %s", f.getLinkId(), mode);
+				toLinks.add(link);
+			}
+
+			Route route = routeCreator.createRoute(departureTime, fromLinks, toLinks,
+					request.getPerson(), request.getAttributes(), populationFactory.getRouteFactories());
+
+			Leg leg = populationFactory.createLeg(mode);
+			leg.setDepartureTime(departureTime);
+			leg.setTravelTime(route.getTravelTime().seconds());
+			leg.setRoute(route);
+			return ImmutableList.of(leg);
+		} else {
+			throw new IllegalArgumentException("Unsupported routing request type: " + request.getClass());
+		}
 	}
 }

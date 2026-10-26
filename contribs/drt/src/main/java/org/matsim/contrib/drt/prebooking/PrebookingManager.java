@@ -12,6 +12,7 @@ import org.matsim.api.core.v01.network.Network;
 import org.matsim.api.core.v01.population.*;
 import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
 import org.matsim.contrib.drt.prebooking.unscheduler.RequestUnscheduler;
+import org.matsim.contrib.drt.routing.DrtRoute;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.optimizer.Request;
 import org.matsim.contrib.dvrp.optimizer.VrpOptimizer;
@@ -29,6 +30,8 @@ import org.matsim.core.mobsim.qsim.agents.WithinDayAgentUtils;
 import org.matsim.core.mobsim.qsim.interfaces.MobsimEngine;
 
 import jakarta.annotation.Nullable;
+import org.matsim.core.population.PersonUtils;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,10 +68,13 @@ public class PrebookingManager implements MobsimEngine, MobsimAfterSimStepListen
 
 	private InternalInterface internalInterface;
 
+	private DynamicAccessEgressHandler dynamicAccessEgressHandler;
+
 
 	public PrebookingManager(String mode, Network network, PassengerRequestCreator requestCreator,
 							 VrpOptimizer optimizer, MobsimTimer mobsimTimer, PassengerRequestValidator requestValidator,
-							 EventsManager eventsManager, RequestUnscheduler unscheduler, boolean abortRejectedPrebookings) {
+							 EventsManager eventsManager, RequestUnscheduler unscheduler, boolean abortRejectedPrebookings,
+							 DynamicAccessEgressHandler dynamicAccessEgressHandler) {
 		this.network = network;
 		this.mode = mode;
 		this.requestCreator = requestCreator;
@@ -79,6 +85,7 @@ public class PrebookingManager implements MobsimEngine, MobsimAfterSimStepListen
 		this.eventsManager = eventsManager;
 		this.unscheduler = unscheduler;
 		this.abortRejectedPrebookings = abortRejectedPrebookings;
+		this.dynamicAccessEgressHandler = dynamicAccessEgressHandler;
 	}
 
 	// Functionality for ID management
@@ -174,10 +181,15 @@ public class PrebookingManager implements MobsimEngine, MobsimAfterSimStepListen
 		eventsManager.processEvent(new PassengerRequestBookedEvent(now, mode, requestId, personIds));
 
 		List<Route> routes = personsLegs.stream().map(PersonLeg::leg).map(Leg::getRoute).toList();
-		Route representativeRoute = routes.get(0);
+		Route representativeRoute = routes.getFirst();
+
+		List<Link> accessLinks = ((DrtRoute) representativeRoute).getStartLinkIds().stream().map(this::getLink).toList();
+		List<Link> egressLinks = ((DrtRoute) representativeRoute).getEndLinkIds().stream().map(this::getLink).toList();
+
+		//earliestDepartureTime += dynamicAccessEgressHandler.estimatePessimisticAccessArrivalTime(now, ,accessLinks);
+
 		PassengerRequest request = requestCreator.createRequest(requestId, personIds, routes,
-				getLink(representativeRoute.getStartLinkId()), getLink(representativeRoute.getEndLinkId()), earliestDepartureTime,
-				now);
+				accessLinks, egressLinks, earliestDepartureTime, now);
 
 		Set<String> violations = requestValidator.validateRequest(request);
 
@@ -288,6 +300,25 @@ public class PrebookingManager implements MobsimEngine, MobsimAfterSimStepListen
 				unscheduler.unscheduleRequest(now, event.getVehicleId(), event.getRequestId());
 				unscheduleUponVehicleAssignment.remove(event.getRequestId());
 			}
+
+
+			if(item != null) {
+				Id<Link> pickupLink = event.getPickupLink();
+				Id<Link> dropoffLink = event.getDropoffLink();
+				List<Link> fromLinks = item.request.getFromLinks();
+				List<Link> toLinks = item.request.getToLinks();
+
+
+				if (!fromLinks.getFirst().getId().equals(pickupLink)) {
+				//	System.out.println("hohoho");
+				}
+				if (!toLinks.getFirst().getId().equals(dropoffLink)) {
+				//	System.out.println("hohoho");
+				}
+				dynamicAccessEgressHandler.handle(event);
+			}
+
+
 		}
 
 		scheduledEvents.clear();
@@ -532,5 +563,8 @@ public class PrebookingManager implements MobsimEngine, MobsimAfterSimStepListen
 	@Override
 	public void setInternalInterface(InternalInterface internalInterface) {
 		this.internalInterface = internalInterface;
+		if(dynamicAccessEgressHandler != null) {
+			dynamicAccessEgressHandler.setInternalInterface(internalInterface);
+		}
 	}
 }

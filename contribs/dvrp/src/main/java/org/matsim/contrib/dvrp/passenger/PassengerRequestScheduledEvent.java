@@ -89,6 +89,15 @@ public class PassengerRequestScheduledEvent extends AbstractPassengerRequestEven
 		return dropoffTime;
 	}
 
+
+	public Id<Link> getPickupLink() {
+		return pickupLink;
+	}
+
+	public Id<Link> getDropoffLink() {
+		return dropoffLink;
+	}
+
 	@Override
 	public Map<String, String> getAttributes() {
 		Map<String, String> attr = super.getAttributes();

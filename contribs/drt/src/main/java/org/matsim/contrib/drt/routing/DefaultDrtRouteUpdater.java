@@ -87,12 +87,15 @@ public class DefaultDrtRouteUpdater implements ShutdownListener, DrtRouteUpdater
 	}
 
 	private void updateDrtRoute(RouteCreator drtRouteCreator, Person person, Attributes tripAttributes, Leg drtLeg) {
-		Link fromLink = network.getLinks().get(drtLeg.getRoute().getStartLinkId());
-		Link toLink = network.getLinks().get(drtLeg.getRoute().getEndLinkId());
+		DrtRoute route = (DrtRoute) drtLeg.getRoute();
+		Link fromLink = network.getLinks().get(route.getStartLinkId());
+		Link toLink = network.getLinks().get(route.getEndLinkId());
 		RouteFactories routeFactories = population.getFactory().getRouteFactories();
 
-		Route drtRoute = drtRouteCreator.createRoute(drtLeg.getDepartureTime().seconds(), fromLink, toLink, person,
+		DrtRoute drtRoute = (DrtRoute) drtRouteCreator.createRoute(drtLeg.getDepartureTime().seconds(), fromLink, toLink, person,
 			tripAttributes, routeFactories);
+		drtRoute.setStartLinkIds(route.getStartLinkIds());
+		drtRoute.setEndLinkIds(route.getEndLinkIds());
 		drtLeg.setRoute(drtRoute);
 
 		// update DRT estimate

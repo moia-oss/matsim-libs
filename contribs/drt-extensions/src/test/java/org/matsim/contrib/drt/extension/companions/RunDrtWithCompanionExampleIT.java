@@ -121,7 +121,7 @@ public class RunDrtWithCompanionExampleIT {
 	}
 
 	private int[] getTotalNumberOfDrtRides() {
-		String filename = utils.getOutputDirectory() + "/drt_customer_stats_drt.csv";
+		String filename = utils.getOutputDirectory() + "/drt_customer_stats_drtN3.csv";
 
 		final List<String> collect;
 		try {

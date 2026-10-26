@@ -119,6 +119,10 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 		// For each unique pickup link, calc backward dijkstra to ends of selected stops + starts
 		double earliestPickupTime = drtRequest.getEarliestStartTime(); // optimistic
 
+		// With multiple pickup links, force eager path materialization to avoid lazy path bug
+		// (shared tree gets overwritten in subsequent loop iterations)
+		boolean forceEagerMaterialization = insertionsByPickupLink.size() > 1;
+
 		Map<Link, Map<Link, PathData>> result = new HashMap<>();
 		for (Map.Entry<Link, List<Insertion>> entry : insertionsByPickupLink.entrySet()) {
 			Link pickupLink = entry.getKey();
@@ -127,6 +131,16 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 			Collection<Link> toLinks = getDetourLinks(insertions.stream(),
 					insertion -> insertion.pickup.previousWaypoint.getLink());
 			Map<Link, PathData> pathsForPickupLink = toPickupPathSearch.calcPathDataMap(pickupLink, toLinks, earliestPickupTime, false);
+
+			if (forceEagerMaterialization) {
+				// Force materialization of all lazy paths before tree is overwritten
+				for (PathData pathData : pathsForPickupLink.values()) {
+					if (pathData != PathData.EMPTY && pathData != PathData.INFEASIBLE) {
+						pathData.getPath(); // Materialize lazy path
+					}
+				}
+			}
+
 			result.put(pickupLink, pathsForPickupLink);
 		}
 		return result;
@@ -136,6 +150,10 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 		// For each unique pickup link, calc forward dijkstra to beginnings of selected stops + dropoff
 		double earliestPickupTime = drtRequest.getEarliestStartTime(); // optimistic
 
+		// With multiple pickup links, force eager path materialization to avoid lazy path bug
+		// (shared tree gets overwritten in subsequent loop iterations)
+		boolean forceEagerMaterialization = insertionsByPickupLink.size() > 1;
+
 		Map<Link, Map<Link, PathData>> result = new HashMap<>();
 		for (Map.Entry<Link, List<Insertion>> entry : insertionsByPickupLink.entrySet()) {
 			Link pickupLink = entry.getKey();
@@ -144,6 +162,16 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 			Collection<Link> toLinks = getDetourLinks(insertions.stream(),
 					insertion -> insertion.pickup.nextWaypoint.getLink());
 			Map<Link, PathData> pathsForPickupLink = fromPickupPathSearch.calcPathDataMap(pickupLink, toLinks, earliestPickupTime, true);
+
+			if (forceEagerMaterialization) {
+				// Force materialization of all lazy paths before tree is overwritten
+				for (PathData pathData : pathsForPickupLink.values()) {
+					if (pathData != PathData.EMPTY && pathData != PathData.INFEASIBLE) {
+						pathData.getPath(); // Materialize lazy path
+					}
+				}
+			}
+
 			result.put(pickupLink, pathsForPickupLink);
 		}
 		return result;
@@ -152,6 +180,10 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 	private Map<Link, Map<Link, PathData>> calcPathsToDropoff(DrtRequest drtRequest, Map<Link, List<Insertion>> insertionsByDropoffLink) {
 		// For each unique dropoff link, calc backward dijkstra to ends of selected stops
 		double latestDropoffTime = drtRequest.getLatestArrivalTime(); // pessimistic
+
+		// With multiple dropoff links, force eager path materialization to avoid lazy path bug
+		// (shared tree gets overwritten in subsequent loop iterations)
+		boolean forceEagerMaterialization = insertionsByDropoffLink.size() > 1;
 
 		Map<Link, Map<Link, PathData>> result = new HashMap<>();
 		for (Map.Entry<Link, List<Insertion>> entry : insertionsByDropoffLink.entrySet()) {
@@ -162,6 +194,16 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 							.filter(insertion -> !(insertion.dropoff.previousWaypoint instanceof Waypoint.Pickup)),
 					insertion -> insertion.dropoff.previousWaypoint.getLink());
 			Map<Link, PathData> pathsForDropoffLink = toDropoffPathSearch.calcPathDataMap(dropoffLink, toLinks, latestDropoffTime, false);
+
+			if (forceEagerMaterialization) {
+				// Force materialization of all lazy paths before tree is overwritten
+				for (PathData pathData : pathsForDropoffLink.values()) {
+					if (pathData != PathData.EMPTY && pathData != PathData.INFEASIBLE) {
+						pathData.getPath(); // Materialize lazy path
+					}
+				}
+			}
+
 			result.put(dropoffLink, pathsForDropoffLink);
 		}
 		return result;
@@ -170,6 +212,10 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 	private Map<Link, Map<Link, PathData>> calcPathsFromDropoff(DrtRequest drtRequest, Map<Link, List<Insertion>> insertionsByDropoffLink) {
 		// For each unique dropoff link, calc forward dijkstra to beginnings of selected stops
 		double latestDropoffTime = drtRequest.getLatestArrivalTime(); // pessimistic
+
+		// With multiple dropoff links, force eager path materialization to avoid lazy path bug
+		// (shared tree gets overwritten in subsequent loop iterations)
+		boolean forceEagerMaterialization = insertionsByDropoffLink.size() > 1;
 
 		Map<Link, Map<Link, PathData>> result = new HashMap<>();
 		for (Map.Entry<Link, List<Insertion>> entry : insertionsByDropoffLink.entrySet()) {
@@ -180,6 +226,16 @@ class MultiInsertionDetourPathCalculator implements MobsimBeforeCleanupListener 
 							.filter(insertion -> !(insertion.dropoff.nextWaypoint instanceof Waypoint.End)),
 					insertion -> insertion.dropoff.nextWaypoint.getLink());
 			Map<Link, PathData> pathsForDropoffLink = fromDropoffPathSearch.calcPathDataMap(dropoffLink, toLinks, latestDropoffTime, true);
+
+			if (forceEagerMaterialization) {
+				// Force materialization of all lazy paths before tree is overwritten
+				for (PathData pathData : pathsForDropoffLink.values()) {
+					if (pathData != PathData.EMPTY && pathData != PathData.INFEASIBLE) {
+						pathData.getPath(); // Materialize lazy path
+					}
+				}
+			}
+
 			result.put(dropoffLink, pathsForDropoffLink);
 		}
 		return result;

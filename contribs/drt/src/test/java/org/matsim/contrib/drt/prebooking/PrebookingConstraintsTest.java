@@ -100,7 +100,7 @@ public class PrebookingConstraintsTest {
                     public void nextTask(DvrpVehicle vehicle) {
 
                     }
-                }, mobsimTimer, new DefaultPassengerRequestValidator(), eventsManager, null, false);
+                }, mobsimTimer, new DefaultPassengerRequestValidator(), eventsManager, null, false, null);
 
         prebookingManager.prebook(agent, (Leg) WithinDayAgentUtils.getModifiablePlan(agent).getPlanElements().get(1), 50);
         prebookingManager.notifyMobsimAfterSimStep(new MobsimAfterSimStepEvent(null, 51));

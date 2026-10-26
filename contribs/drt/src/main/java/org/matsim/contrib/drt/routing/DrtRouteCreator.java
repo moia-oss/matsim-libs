@@ -38,6 +38,8 @@ import org.matsim.core.router.util.LeastCostPathCalculatorFactory;
 import org.matsim.core.router.util.TravelTime;
 import org.matsim.utils.objectattributes.attributable.Attributes;
 
+import java.util.List;
+
 /**
  * @author jbischoff
  * @author michalm (Michal Maciejewski)
@@ -89,6 +91,16 @@ public class DrtRouteCreator implements DefaultMainLegRouter.RouteCreator {
 			route.setUnsharedPath(unsharedPath);
 		}
 
+		return route;
+	}
+
+	@Override
+	public Route createRoute(double departureTime, List<Link> accessActLinks, List<Link> egressActLinks,
+							 Person person, Attributes tripAttributes, RouteFactories routeFactories) {
+		DrtRoute route = (DrtRoute) createRoute(departureTime, accessActLinks.getFirst(),
+				egressActLinks.getFirst(), person, tripAttributes, routeFactories);
+		route.setStartLinkIds(accessActLinks.stream().map(Link::getId).toList());
+		route.setEndLinkIds(egressActLinks.stream().map(Link::getId).toList());
 		return route;
 	}
 }

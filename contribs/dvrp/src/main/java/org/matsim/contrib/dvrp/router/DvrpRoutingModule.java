@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.google.common.base.Verify;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.TransportMode;
@@ -53,6 +54,7 @@ public class DvrpRoutingModule implements RoutingModule {
 	private final RoutingModule accessRouter;
 	private final RoutingModule egressRouter;
 	private final TimeInterpretation timeInterpretation;
+	private final boolean useDynamicStopSelection = true;
 
 	public DvrpRoutingModule(RoutingModule mainRouter, RoutingModule accessRouter, RoutingModule egressRouter,
 			AccessEgressFacilityFinder stopFinder, String mode, TimeInterpretation timeInterpretation) {
@@ -84,10 +86,17 @@ public class DvrpRoutingModule implements RoutingModule {
 			return null;
 		}
 
-		Facility accessFacility = stops.get().access().iterator().next();
-		Facility egressFacility = stops.get().egress().iterator().next();
+		List<Facility> accessStops = stops.get().access();
+		List<Facility> egressStops = stops.get().egress();
+		if(!useDynamicStopSelection ) {
+			Verify.verify(accessStops.size() == 1 && egressStops.size() == 1,
+					"Only one access and one egress facility allowed without dynamic stop selection.");
+		}
 
-		if (accessFacility.getLinkId().equals(egressFacility.getLinkId())) {
+		Facility accessFacility = accessStops.getFirst();
+		Facility egressFacility = egressStops.getFirst();
+
+		if (accessFacility.getLinkId().equals(egressFacility.getLinkId()) && accessStops.size() == 1 && egressStops.size() == 1) {
 			logger.debug("Start and end stop are the same, agent will use fallback mode as leg mode (usually "
 					+ TransportMode.walk
 					+ ") and routing mode "
@@ -101,31 +110,35 @@ public class DvrpRoutingModule implements RoutingModule {
 
 		double now = departureTime;
 
-		// access (sub-)trip:
-		List<? extends PlanElement> accessTrip = accessRouter.calcRoute(
-				DefaultRoutingRequest.of(fromFacility, accessFacility, now, person, request.getAttributes()));
-		if (!accessTrip.isEmpty()) {
-			trip.addAll(accessTrip);
-			now = timeInterpretation.decideOnElementsEndTime(accessTrip, now).seconds();
+		if (!useDynamicStopSelection) {
+			// access (sub-)trip:
+			List<? extends PlanElement> accessTrip = accessRouter.calcRoute(
+					DefaultRoutingRequest.of(fromFacility, accessFacility, now, person, request.getAttributes()));
+			if (!accessTrip.isEmpty()) {
+				trip.addAll(accessTrip);
+				now = timeInterpretation.decideOnElementsEndTime(accessTrip, now).seconds();
 
-			// interaction activity:
-			trip.add(createDrtStageActivity(accessFacility, now));
+				// interaction activity:
+				trip.add(createDrtStageActivity(accessFacility, now));
+			}
 		}
 
 		// dvrp proper leg:
 		List<? extends PlanElement> drtLeg = mainRouter.calcRoute(
-				DefaultRoutingRequest.of(accessFacility, egressFacility, now, person, request.getAttributes()));
+				DvrpRoutingRequest.of(accessStops, egressStops, now, person, request.getAttributes()));
 		trip.addAll(drtLeg);
 		now = timeInterpretation.decideOnElementsEndTime(drtLeg, now).seconds();
 
-		// egress (sub-)trip:
-		List<? extends PlanElement> egressTrip = egressRouter.calcRoute(
-				DefaultRoutingRequest.of(egressFacility, toFacility, now, person, request.getAttributes()));
-		if (!egressTrip.isEmpty()) {
-			// interaction activity:
-			trip.add(createDrtStageActivity(egressFacility, now));
+		if(!useDynamicStopSelection) {
+			// egress (sub-)trip:
+			List<? extends PlanElement> egressTrip = egressRouter.calcRoute(
+					DefaultRoutingRequest.of(egressFacility, toFacility, now, person, request.getAttributes()));
+			if (!egressTrip.isEmpty()) {
+				// interaction activity:
+				trip.add(createDrtStageActivity(egressFacility, now));
 
-			trip.addAll(egressTrip);
+				trip.addAll(egressTrip);
+			}
 		}
 
 		return trip;
