@@ -18,6 +18,7 @@ import org.matsim.contrib.drt.run.DrtConfigGroup;
 import org.matsim.contrib.drt.run.DrtControlerCreator;
 import org.matsim.contrib.drt.run.MultiModeDrtConfigGroup;
 import org.matsim.contrib.dvrp.load.DvrpLoadType;
+import org.matsim.contrib.dvrp.load.IntegersLoad;
 import org.matsim.contrib.dvrp.run.AbstractDvrpModeModule;
 import org.matsim.contrib.dvrp.run.DvrpConfigGroup;
 import org.matsim.contrib.zone.skims.DvrpTravelTimeMatrixParams;
@@ -270,7 +271,10 @@ public class RunKelheim {
             //    ProbabilityBasedPrebookingLogic.install(controller, drtConfigGroup, 1, 1800);
                 AdaptivePrebookingLogic.install(controller, drtConfigGroup, 1800);
             }
-            controller.addOverridingQSimModule(new LineServiceQSimModule(drtConfigGroup, ALLOW_ON_DEMAND, ENFORCE_MAX_WAIT, MIXED));
+
+			IntegersLoad minimumRequiredCapacityForLineService = new MoiaDvrpLoadType().getLoad(1, 0);
+            controller.addOverridingQSimModule(new LineServiceQSimModule(drtConfigGroup, ALLOW_ON_DEMAND, ENFORCE_MAX_WAIT, MIXED,
+				minimumRequiredCapacityForLineService));
             controller.addOverridingModule(new LineServiceModule(drtConfigGroup));
         }
 

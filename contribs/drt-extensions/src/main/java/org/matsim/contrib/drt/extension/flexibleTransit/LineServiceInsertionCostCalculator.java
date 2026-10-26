@@ -52,6 +52,10 @@ public class LineServiceInsertionCostCalculator implements InsertionCostCalculat
 
                             LineService lineService = lineServiceManager.getActiveLineServiceVehicles().get(insertion.vehicleEntry.vehicle.getId()).peek();
 
+                            //TODO: this fails if one link has multiple stops (because then the map can return null),
+                            // and we get an NPE when looking for the attributes below
+                            //this also fails if requests occur during line service on stops that are not in the transit schedule file
+                            //we should probably add all stops from the DrtStopNetwork in the constructor???
                             TransitStopFacility puStop = stopsByLink.get(pickup.newWaypoint.getLink().getId());
                             TransitStopFacility doStop = stopsByLink.get(dropoff.newWaypoint.getLink().getId());
 
@@ -78,7 +82,7 @@ public class LineServiceInsertionCostCalculator implements InsertionCostCalculat
 
                             }
 
-                            // wenn der naechste stop gleicer ort -> reject, da optional stop danach appended werden muss
+                            // wenn der naechste stop gleicher ort -> reject, da optional stop danach appended werden muss
                             if (pickup.nextWaypoint instanceof FixedStopWaypoint && pickup.nextWaypoint.getLink().equals(pickup.newWaypoint.getLink())) {
                                 // rejected auch den ersten stop wenn zwei mal derselbe hintereinander kommt, vmtl ok für pickup
                                 return INFEASIBLE_SOLUTION_COST;

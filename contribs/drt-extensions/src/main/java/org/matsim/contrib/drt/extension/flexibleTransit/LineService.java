@@ -58,6 +58,11 @@ public class LineService {
         return Optional.ofNullable(routeStopsByLink.get(link.getId()));
     }
 
+	/**
+	 *
+	 * @param stop
+	 * @return true if the given stop was the last stop of the transit route
+	 */
     public boolean advance(TransitRouteStop stop) {
         lastCheckpointIdx++;
         Verify.verify(route.getStops().get(lastCheckpointIdx).equals(stop));
