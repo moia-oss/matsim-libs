@@ -35,6 +35,7 @@ import org.matsim.contrib.drt.extension.operations.operationFacilities.Operation
 import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.ev.charging.ChargingEstimations;
+import org.matsim.contrib.ev.charging.ChargingListener;
 import org.matsim.contrib.ev.charging.ChargingLogic;
 import org.matsim.contrib.ev.charging.ChargingStrategy;
 import org.matsim.contrib.ev.fleet.ElectricVehicle;
@@ -68,6 +69,7 @@ import org.matsim.core.mobsim.framework.events.MobsimBeforeSimStepEvent;
 import org.matsim.core.mobsim.framework.listeners.MobsimBeforeSimStepListener;
 import org.matsim.core.mobsim.framework.MobsimTimer;
 import org.matsim.core.events.MobsimScopeEventHandler;
+import org.matsim.core.gbl.MatsimRandom;
 import org.matsim.core.router.speedy.SpeedyALTFactory;
 import org.matsim.core.router.util.LeastCostPathCalculator;
 import org.matsim.core.router.util.TravelTime;
@@ -168,6 +170,9 @@ public final class CleaningDispatcher implements MobsimBeforeSimStepListener, Li
 	private final Map<Id<DvrpVehicle>, HubVisit> visits = new LinkedHashMap<>();
 	// due vehicles that gave up waiting for a worker; they are not sent to the hub again until their next threshold
 	private final Set<Id<DvrpVehicle>> abandoned = new HashSet<>();
+	// vehicles taken off a charger before its charging step had plugged or queued them: the ev logic still holds them
+	// and ends their cancelled charge in a later step, so they must not be added to a charger again until it has
+	private final Set<Id<Vehicle>> leavingCharger = new HashSet<>();
 
 	// charging, null for fleets without batteries or with hub charging switched off
 	@Nullable
@@ -345,6 +350,10 @@ public final class CleaningDispatcher implements MobsimBeforeSimStepListener, Li
 					}
 				}
 				case inService -> {
+					if (visit.charges() && visit.charger == null) {
+						// the plug was deferred, the vehicle was still leaving a charger: retry
+						plugIn(visit, visit.serviceWorker, now);
+					}
 					markTargetReached(visit, now);
 					if (now >= visit.cleaningEnd) {
 						afterCleaning(visit, now);
@@ -463,6 +472,10 @@ public final class CleaningDispatcher implements MobsimBeforeSimStepListener, Li
 
 	/** Cleaning is over: the visit is done unless the vehicle is still on the charger. */
 	private void afterCleaning(HubVisit visit, double now) {
+		if (visit.charges() && visit.charger == null) {
+			// the plug is still deferred, the vehicle is leaving a charger: wait in service and retry next step
+			return;
+		}
 		if (!visit.charges() || !visit.isPlugged()) {
 			visit.phase = HubVisit.Phase.done;
 		} else if (!Double.isNaN(visit.targetReachedTime)) {
@@ -528,6 +541,11 @@ public final class CleaningDispatcher implements MobsimBeforeSimStepListener, Li
 			return;
 		}
 		ElectricVehicle ev = evVehicle.getElectricVehicle();
+		if (leavingCharger.contains(ev.getId())) {
+			// still held by a charger from a cancelled charge; adding it again would plug it in twice. The visit stays in
+			// service and retries in the next step
+			return;
+		}
 		visit.ev = ev;
 		visit.charger = charger.get();
 		visit.strategy = new WorkerReleasedChargingStrategy(
@@ -535,10 +553,23 @@ public final class CleaningDispatcher implements MobsimBeforeSimStepListener, Li
 		visit.socAtPlug = ev.getBattery().getSoc();
 		visit.chargeAtPlug = ev.getBattery().getCharge();
 		// the ev logic plugs it in its next charging step, or queues it if all plugs are taken
-		charger.get().getLogic().addVehicle(ev, visit.strategy, now);
+		charger.get().getLogic().addVehicle(ev, visit.strategy, releaseListener, now);
 		eventsManager.processEvent(new HubChargingPluggedEvent(now, mode, visit.vehicleId, visit.hub,
 				charger.get().getId(), visit.socAtPlug, worker));
 	}
+
+	/** Clears a vehicle from {@link #leavingCharger} once the ev logic has let it go. */
+	private final ChargingListener releaseListener = new ChargingListener() {
+		@Override
+		public void notifyChargingEnded(ElectricVehicle ev, double now) {
+			leavingCharger.remove(ev.getId());
+		}
+
+		@Override
+		public void notifyVehicleQuitChargerQueue(ElectricVehicle ev, double now) {
+			leavingCharger.remove(ev.getId());
+		}
+	};
 
 	/** Takes the vehicle off the charger, plugged or still queued for a plug. */
 	private void unplug(HubVisit visit, @Nullable Id<HubWorkers.HubWorker> worker, double now) {
@@ -551,8 +582,10 @@ public final class CleaningDispatcher implements MobsimBeforeSimStepListener, Li
 		if (onCharger) {
 			logic.removeVehicle(visit.ev, now);
 		} else {
-			// added this charging step but not yet plugged or queued by the ev logic: let it end the charge itself
+			// added this charging step but not yet plugged or queued by the ev logic: let it end the charge itself, and
+			// keep the vehicle off every charger until it has
 			visit.strategy.cancel();
+			leavingCharger.add(visit.ev.getId());
 		}
 		visit.unplugTime = now;
 		visit.unplugWorker = worker;
@@ -871,6 +904,12 @@ public final class CleaningDispatcher implements MobsimBeforeSimStepListener, Li
 		}
 		for (Id<DvrpVehicle> dvrpVehicleId : fleet.getVehicles().keySet()) {
 			fleetVehicleIds.put(Id.create(dvrpVehicleId, Vehicle.class), dvrpVehicleId);
+		}
+		if (params.isRandomizeInitialSoiling()) {
+			// a fleet that has been in service before: counters spread over [0, threshold), sorted ids for determinism
+			tracker.randomizeInitialCounters(fleet.getVehicles().keySet().stream().sorted().toList(),
+					MatsimRandom.getLocalInstance());
+			logger.info("Initial soiling randomized for {} vehicles.", fleetVehicleIds.size());
 		}
 		logger.info("Initialized hub operations for {} vehicles: interior every {} pkm for {} s, exterior every {} vkm for"
 						+ " {} s, maintenance every {} vkm for {} s, {}, bundling from {} of a threshold, {}.",

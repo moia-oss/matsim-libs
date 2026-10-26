@@ -21,7 +21,6 @@ import org.matsim.contrib.drt.extension.operations.remoteoperations.BusyWindowTr
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RejectionRateTracker;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceScheduler;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.RemoteGuidanceShiftEndLogic;
-import org.matsim.contrib.drt.extension.operations.remoteoperations.activation.ActivationReconciler;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilities;
 import org.matsim.contrib.drt.extension.operations.operationFacilities.OperationFacilityType;
@@ -130,12 +129,10 @@ public class ShiftDrtModeOptimizerQSimModule extends AbstractDvrpModeQSimModule 
 			// the deactivation side reads the SAME reconciler policy AND the SAME rejection-rate tracker as the
 			// activation side (RemoteGuidanceScheduler), so both margins share one fleet-sizing target (floor +
 			// responsiveness buffer + demand-driven rejection trigger).
-			ActivationReconciler reconciler = ActivationReconciler.create(rgParams.getActivationPolicy(),
-					rgParams.getMinActiveFleet(), rgParams.getReadyBufferSize(),
-					RemoteGuidanceScheduler.rejectionThreshold(rgParams));
 			bindModal(ShiftEndLogic.class).toProvider(modalProvider(getter -> new RemoteGuidanceShiftEndLogic(
 					getter.getModal(Fleet.class), getter.getModal(RemoteGuidanceOperators.class), idleTimeout,
-					recallLeadTime, reconciler,
+					recallLeadTime,
+					RemoteGuidanceScheduler.reconciler(rgParams, getter.getModal(RemoteGuidanceOperators.class)),
 					hasRejectionActivation ? getter.getModal(RejectionRateTracker.class) : null,
 					getter.getModal(BusyWindowTracker.class)).withHubVisits(getter.getModal(HubVisitRegistry.class))));
 		} else {

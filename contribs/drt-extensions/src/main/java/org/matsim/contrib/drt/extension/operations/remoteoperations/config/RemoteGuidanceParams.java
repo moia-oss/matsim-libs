@@ -68,6 +68,18 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 	private int minActiveFleet = 0;
 
 	@Parameter
+	@Comment("Starting fleet: as soon as operators come on duty after a gap (e.g. the morning opening after a closed "
+			+ "night) this many vehicles are activated at once, for startupDuration seconds, so the service opens with the "
+			+ "labor instead of ramping up from the demand already seen. Capped by activation capacity and idle vehicles. "
+			+ "Defaults to 0 (off).")
+	private int startupActiveFleet = 0;
+
+	@Parameter
+	@Comment("How long after the operators come on duty the starting fleet is held, in seconds. Afterwards the "
+			+ "demand-driven triggers take over and the idle timeout recalls what is not needed. Defaults to 3600.")
+	private double startupDuration = 3600;
+
+	@Parameter
 	@Comment("Responsiveness buffer: the number of vehicles kept idle-in-service (ready to absorb an incoming request "
 			+ "without a hub activation delay) during a demand lull. The activation side pulls the active fleet up until "
 			+ "this many are idle in service; the idle-timeout deactivation side spares exactly this many, so the two "
@@ -186,6 +198,22 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		return minActiveFleet;
 	}
 
+	public int getStartupActiveFleet() {
+		return startupActiveFleet;
+	}
+
+	public void setStartupActiveFleet(int startupActiveFleet) {
+		this.startupActiveFleet = startupActiveFleet;
+	}
+
+	public double getStartupDuration() {
+		return startupDuration;
+	}
+
+	public void setStartupDuration(double startupDuration) {
+		this.startupDuration = startupDuration;
+	}
+
 	public void setMinActiveFleet(int minActiveFleet) {
 		this.minActiveFleet = minActiveFleet;
 	}
@@ -212,6 +240,8 @@ public class RemoteGuidanceParams extends ReflectiveConfigGroupWithConfigurableP
 		Verify.verify(defaultOperatorCapacity > 0, "defaultOperatorCapacity must be a positive integer.");
 		Verify.verify(minRemainingShiftTimeForActivation >= 0, "minRemainingShiftTimeForActivation must not be negative.");
 		Verify.verify(minActiveFleet >= 0, "minActiveFleet must not be negative.");
+		Verify.verify(startupActiveFleet >= 0, "startupActiveFleet must not be negative.");
+		Verify.verify(startupDuration >= 0, "startupDuration must not be negative.");
 		Verify.verify(readyBufferSize >= 0, "readyBufferSize must not be negative.");
 		Verify.verify(busyWindowSize >= 0, "busyWindowSize must not be negative.");
 		Verify.verify(fieldSupportParams == null || !fieldSupportParams.getAgentShiftType().equals(operatorShiftType),

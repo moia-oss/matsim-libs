@@ -171,6 +171,30 @@ public final class RemoteGuidanceOperators {
 		return max;
 	}
 
+	/**
+	 * @return how long operators have been on duty without a break at {@code now}: the time since the start of the
+	 * current stretch in which at least one operator is in its planned window, or {@code NaN} if none is on duty. A
+	 * stretch starts where no operator covered the moment before, e.g. the morning opening after a closed night.
+	 */
+	public double timeSinceCoverageStart(double now) {
+		if (plannedOnDutyCount(now) == 0) {
+			return Double.NaN;
+		}
+		double start = now;
+		boolean extended = true;
+		while (extended) {
+			extended = false;
+			for (Operator operator : operators.values()) {
+				// an operator on duty just before the current start continues the stretch back to its own start
+				if (operator.startTime < start && operator.plannedEndTime >= start) {
+					start = operator.startTime;
+					extended = true;
+				}
+			}
+		}
+		return now - start;
+	}
+
 	public Map<Id<DrtShift>, Operator> getOperators() {
 		return operators;
 	}

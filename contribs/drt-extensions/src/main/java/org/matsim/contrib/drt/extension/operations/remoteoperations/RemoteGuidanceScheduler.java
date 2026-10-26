@@ -16,6 +16,7 @@ import org.matsim.contrib.drt.extension.operations.remoteoperations.activation.A
 import org.matsim.contrib.drt.extension.operations.remoteoperations.activation.ActivationTrigger;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.activation.GuidanceState;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.activation.IdleBufferActivation;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.activation.StartupActivation;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.config.RemoteGuidanceParams;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.RemoteGuidanceOperatorEndedEvent;
 import org.matsim.contrib.drt.extension.operations.remoteoperations.events.RemoteGuidanceOperatorStartedEvent;
@@ -25,6 +26,7 @@ import org.matsim.contrib.drt.extension.operations.remoteoperations.events.Vehic
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DefaultShiftScheduler;
 import org.matsim.contrib.drt.extension.operations.shifts.dispatcher.ShiftScheduler;
 import org.matsim.contrib.drt.extension.operations.shifts.fleet.ShiftDvrpVehicle;
+import org.matsim.contrib.drt.extension.operations.remoteoperations.schedule.IncidentHoldTask;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftSchedules;
 import org.matsim.contrib.drt.extension.operations.huboperations.HubVisitRegistry;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
@@ -183,7 +185,11 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// finishing any pending incident until its vehicles have gone home. Runs before emission so freshly-released
 		// operators no longer count toward the activation ceiling below. Each release fires an ended event carrying the
 		// planned end, so the retention (effective − planned) is observable.
-		for (RemoteGuidanceOperators.Operator released : operatorState.releaseElapsedOperators(now, liveVirtualShifts.size())) {
+		// vehicles on a hub visit stand at the hub (cleaning, charging, waiting to be unplugged) and vehicles in a field
+		// support hold stand waiting for a field agent; neither needs supervision, so they do not hold an operator past
+		// the planned end, e.g. the night after the hub crew or the last field agent has gone home
+		for (RemoteGuidanceOperators.Operator released : operatorState.releaseElapsedOperators(now,
+				liveVirtualShifts.size() - idleCounts.standing())) {
 			eventsManager.processEvent(new RemoteGuidanceOperatorEndedEvent(now, mode, released.id(),
 					released.plannedEndTime()));
 		}
@@ -197,7 +203,14 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		// re-emit it) but not yet started; feeding it into busy would re-inflate the target.
 		int busy = busy(idleCounts.startedVirtual(), idleCounts.idleInService(), idleCounts.leaving());
 		int smoothedBusy = busyWindowTracker.sample(now, busy);
-		GuidanceState state = new GuidanceState(liveVirtualShifts.size(), operators.activationCapacityAt(now),
+		// vehicles standing at a hub or in a field support hold keep their virtual shift but serve nobody, e.g. a vehicle
+		// charged overnight that waits for the morning crew to unplug it; counting them as active would hold back the
+		// vehicles the service needs, so the activation side leaves them out. They still hold a place under the
+		// supervision gate, so the capacity is reduced by the same number: a finite gate is never exceeded
+		int standing = idleCounts.standing();
+		int capacity = operators.activationCapacityAt(now);
+		GuidanceState state = new GuidanceState(liveVirtualShifts.size() - standing,
+				capacity >= Integer.MAX_VALUE - standing ? capacity : Math.max(0, capacity - standing),
 				idleCounts.idleAtHub(), idleCounts.idleInService(), smoothedBusy, rejectionRate);
 		int toEmit = activationReconciler.toEmit(state, now);
 		for (int i = 0; i < toEmit; i++) {
@@ -213,8 +226,9 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 	 * @param idleInService  active but idle, i.e. the ready buffer
 	 * @param leaving        active and already recalled, routing home on a materialised changeover tail
 	 * @param startedVirtual vehicles whose virtual shift has actually started
+	 * @param standing       live vehicles on a hub visit or in a field support hold, which need no operator
 	 */
-	private record IdleCounts(int idleAtHub, int idleInService, int leaving, int startedVirtual) {}
+	private record IdleCounts(int idleAtHub, int idleInService, int leaving, int startedVirtual, int standing) {}
 
 	/**
 	 * The busy count fed into the shared {@link BusyWindowTracker}: started virtual vehicles doing passenger work, i.e.
@@ -267,6 +281,7 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		int idleInService = 0;
 		int leaving = 0;
 		int startedVirtual = 0;
+		int standing = 0;
 		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
 			if (!(vehicle instanceof ShiftDvrpVehicle shiftVehicle)) {
 				continue;
@@ -274,10 +289,15 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 			// every virtual shift in the queue counts as live: a shift emitted this step is assigned and started within
 			// the same dispatcher step (scheduleShifts → assignShifts → startShifts), so keying on queue membership
 			// rather than isStarted() keeps the active count from briefly undercounting and re-emitting a duplicate.
+			boolean live = false;
 			for (DrtShift shift : shiftVehicle.getShifts()) {
 				if (isVirtualShift(shift)) {
 					currentlyLive.put(shift.getId(), vehicle.getId());
+					live = true;
 				}
+			}
+			if (live && isStanding(vehicle, hubVisits)) {
+				standing++;
 			}
 			// idle counts, only meaningful for a started schedule
 			Schedule schedule = vehicle.getSchedule();
@@ -333,7 +353,23 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 		}
 
 		liveVirtualShifts = currentlyLive;
-		return new IdleCounts(idleAtHub, idleInService, leaving, startedVirtual);
+		return new IdleCounts(idleAtHub, idleInService, leaving, startedVirtual, standing);
+	}
+
+	/**
+	 * The vehicle keeps its virtual shift but serves nobody: it is on a hub visit (cleaning, charging, waiting to be
+	 * unplugged) or stands in a field support hold. Neither side of activation counts it as active.
+	 */
+	static boolean isStanding(DvrpVehicle vehicle, HubVisitRegistry hubVisits) {
+		return hubVisits.isOnVisit(vehicle.getId()) || inFieldSupportHold(vehicle);
+	}
+
+	/** The vehicle stands in a field support hold, waiting for or served by a field agent rather than an operator. */
+	private static boolean inFieldSupportHold(DvrpVehicle vehicle) {
+		Schedule schedule = vehicle.getSchedule();
+		return schedule.getStatus() == Schedule.ScheduleStatus.STARTED
+				&& schedule.getCurrentTask() instanceof IncidentHoldTask hold
+				&& hold.getTaskType().equals(IncidentHoldTask.FIELD_SUPPORT_TYPE);
 	}
 
 	private DrtShift createVirtualShift(double now) {
@@ -396,10 +432,22 @@ public final class RemoteGuidanceScheduler implements ShiftScheduler {
 												 RemoteGuidanceOperatorState operatorState, RemoteGuidanceParams params,
 												 EventsManager eventsManager, String mode, double changeoverDuration,
 												 RejectionRateTracker rejectionRateTracker, BusyWindowTracker busyWindowTracker) {
-		ActivationReconciler reconciler = ActivationReconciler.create(params.getActivationPolicy(),
-				params.getMinActiveFleet(), params.getReadyBufferSize(), rejectionThreshold(params));
+		ActivationReconciler reconciler = reconciler(params, operators);
 		return new RemoteGuidanceScheduler(new DefaultShiftScheduler(specification), operators, operatorState, params,
 				eventsManager, mode, changeoverDuration, reconciler, rejectionRateTracker, busyWindowTracker);
+	}
+
+	/**
+	 * The activation policy of {@code params}, with the starting fleet if one is configured. Built the same way for the
+	 * activation side here and the deactivation side ({@code RemoteGuidanceShiftEndLogic}), so both share one target.
+	 */
+	public static ActivationReconciler reconciler(RemoteGuidanceParams params, RemoteGuidanceOperators operators) {
+		StartupActivation startup = params.getStartupActiveFleet() > 0
+				? new StartupActivation(params.getStartupActiveFleet(), params.getStartupDuration(),
+						operators::timeSinceCoverageStart)
+				: null;
+		return ActivationReconciler.create(params.getActivationPolicy(), params.getMinActiveFleet(),
+				params.getReadyBufferSize(), rejectionThreshold(params), startup);
 	}
 
 	/**

@@ -136,6 +136,12 @@ public class HubOperationsParams extends ReflectiveConfigGroupWithConfigurablePa
 	@DecimalMax("1.0")
 	private double minSocForDispatch = 0.;
 
+	@Parameter
+	@Comment("If true, every vehicle starts the run with interior, exterior and maintenance counters drawn uniformly"
+			+ " between 0 and their thresholds, as a fleet that has been in service before. Spreads the hub work over the"
+			+ " run instead of all vehicles falling due at once. Seeded by the global random seed. Defaults to false.")
+	private boolean randomizeInitialSoiling = false;
+
 	@Nullable
 	private HubChargingSlackParams chargingSlackParams;
 
@@ -235,6 +241,14 @@ public class HubOperationsParams extends ReflectiveConfigGroupWithConfigurablePa
 
 	public void setBundlingShare(double bundlingShare) {
 		this.bundlingShare = bundlingShare;
+	}
+
+	public boolean isRandomizeInitialSoiling() {
+		return randomizeInitialSoiling;
+	}
+
+	public void setRandomizeInitialSoiling(boolean randomizeInitialSoiling) {
+		this.randomizeInitialSoiling = randomizeInitialSoiling;
 	}
 
 	public double getMaintenanceThresholdVkm() {

@@ -109,6 +109,8 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 	private Set<Id<DrtShift>> selectRecalls(double now) {
 		List<ShiftDvrpVehicle> active = new ArrayList<>();
 		int idleAtHub = 0;
+		// standing vehicles are not active for the target but still hold a place under the supervision gate
+		int standing = 0;
 		for (DvrpVehicle vehicle : fleet.getVehicles().values()) {
 			if (!(vehicle instanceof ShiftDvrpVehicle shiftVehicle)) {
 				continue;
@@ -120,8 +122,14 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 					&& vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED
 					// exclude vehicles already recalled and routing home. A deferred recall has not materialised a
 					// changeover yet, so such a vehicle stays counted and is retried next step.
-					&& !isAlreadyLeaving(shiftVehicle)) {
+					&& !isAlreadyLeaving(shiftVehicle)
+					// and vehicles standing at a hub or in a field support hold, which the activation side does not
+					// count either; counting them here would recall a serving vehicle for each, which the activation side
+					// then replaces at once
+					&& !RemoteGuidanceScheduler.isStanding(vehicle, hubVisits)) {
 				active.add(shiftVehicle);
+			} else if (runningVirtual && RemoteGuidanceScheduler.isStanding(vehicle, hubVisits)) {
+				standing++;
 			} else if (shiftVehicle.getShifts().isEmpty()
 					&& vehicle.getSchedule().getStatus() == Schedule.ScheduleStatus.STARTED
 					&& vehicle.getSchedule().getCurrentTask() instanceof WaitForShiftTask
@@ -155,7 +163,7 @@ public final class RemoteGuidanceShiftEndLogic implements ShiftEndLogic {
 		// activation capacity over the look-ahead window [now, now + recallLeadTime] rather than the capacity at now, so
 		// vehicles start heading home before an operator's planned end and reach a hub in time.
 		int ceiling = operators.minActivationCapacity(now, now + recallLeadTime);
-		int excess = active.size() - ceiling;
+		int excess = active.size() + standing - ceiling;
 		if (excess > recalled.size()) {
 			active.stream()
 					.filter(v -> !recalled.contains(startedVirtualShiftId(v)))

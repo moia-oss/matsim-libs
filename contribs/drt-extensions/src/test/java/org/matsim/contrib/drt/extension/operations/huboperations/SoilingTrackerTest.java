@@ -14,6 +14,7 @@ import org.matsim.contrib.drt.extension.operations.huboperations.charging.HubCha
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -227,5 +228,39 @@ public class SoilingTrackerTest {
 		assertThat(tracker.addLink(V, 1e9)).isEmpty();
 		assertThat(tracker.isMaintenanceDue(V)).isFalse();
 		assertThat(tracker.typesToMaintain(V)).isEmpty();
+	}
+
+	@Test
+	void randomInitialCountersStayBelowTheThresholdsAndSkipOffTypes() {
+		SoilingTracker tracker = new SoilingTracker(200, 500, 1.0).withMaintenance(2000);
+		List<Id<DvrpVehicle>> vehicles = new java.util.ArrayList<>();
+		for (int i = 0; i < 500; i++) {
+			vehicles.add(Id.create("v" + i, DvrpVehicle.class));
+		}
+		tracker.randomizeInitialCounters(vehicles, new java.util.Random(42));
+		double interiorSum = 0;
+		for (Id<DvrpVehicle> v : vehicles) {
+			assertThat(tracker.getPassengerKm(v)).isBetween(0., 200.);
+			assertThat(tracker.getVehicleKm(v)).isBetween(0., 500.);
+			assertThat(tracker.getMaintenanceKm(v)).isBetween(0., 2000.);
+			assertThat(tracker.isDue(v)).as("nobody starts due").isFalse();
+			interiorSum += tracker.getPassengerKm(v);
+		}
+		assertThat(interiorSum / vehicles.size()).as("uniform, mean near half the threshold").isBetween(90., 110.);
+
+		SoilingTracker off = new SoilingTracker(200, OFF, 1.0);
+		off.randomizeInitialCounters(List.of(V), new java.util.Random(1));
+		assertThat(off.getVehicleKm(V)).as("exterior off stays at 0").isZero();
+		assertThat(off.getMaintenanceKm(V)).as("maintenance off stays at 0").isZero();
+	}
+
+	@Test
+	void randomInitialCountersAreReproducibleForASeed() {
+		SoilingTracker a = new SoilingTracker(200, 500, 1.0);
+		SoilingTracker b = new SoilingTracker(200, 500, 1.0);
+		a.randomizeInitialCounters(List.of(V), new java.util.Random(7));
+		b.randomizeInitialCounters(List.of(V), new java.util.Random(7));
+		assertThat(a.getPassengerKm(V)).isEqualTo(b.getPassengerKm(V));
+		assertThat(a.getVehicleKm(V)).isEqualTo(b.getVehicleKm(V));
 	}
 }

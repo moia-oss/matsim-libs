@@ -66,8 +66,20 @@ public final class ActivationReconciler {
 	 */
 	public static ActivationReconciler create(ActivationPolicy policy, int minActiveFleet, int readyBufferSize,
 			OptionalDouble rejectionRateThreshold) {
+		return create(policy, minActiveFleet, readyBufferSize, rejectionRateThreshold, null);
+	}
+
+	/**
+	 * As {@link #create(ActivationPolicy, int, int, OptionalDouble)}, plus a {@link StartupActivation} when
+	 * {@code startup} is not null, so a starting fleet goes on the road as the operators come on duty.
+	 */
+	public static ActivationReconciler create(ActivationPolicy policy, int minActiveFleet, int readyBufferSize,
+			OptionalDouble rejectionRateThreshold, StartupActivation startup) {
 		List<ActivationTrigger> triggers = new ArrayList<>();
 		triggers.add(new MinFleetActivation(minActiveFleet));
+		if (startup != null) {
+			triggers.add(startup);
+		}
 		switch (policy) {
 			case buffered -> {
 				triggers.add(new IdleBufferActivation(readyBufferSize));

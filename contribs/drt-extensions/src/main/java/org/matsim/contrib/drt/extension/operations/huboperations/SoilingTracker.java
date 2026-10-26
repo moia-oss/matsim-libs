@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
 /**
@@ -283,6 +284,27 @@ public final class SoilingTracker {
 			}
 			if (dueTypes != null) {
 				dueTypes.remove(type);
+			}
+		}
+	}
+
+	/**
+	 * Gives every vehicle of {@code vehicleIds} a counter drawn uniformly between 0 and its threshold, for interior,
+	 * exterior and maintenance (types that are off stay at 0). This stands for a fleet that has been in service before
+	 * the run starts, so the hub work is spread over the run instead of piling up when every vehicle reaches its
+	 * threshold at the same time. Charging is left to the battery state.
+	 *
+	 * @param random seeded, so runs are reproducible
+	 */
+	public void randomizeInitialCounters(Iterable<Id<DvrpVehicle>> vehicleIds, Random random) {
+		for (Id<DvrpVehicle> vehicleId : vehicleIds) {
+			Map<CleaningType, Double> counters = meters.computeIfAbsent(vehicleId, v -> new EnumMap<>(CleaningType.class));
+			for (CleaningType type : List.of(CleaningType.interior, CleaningType.exterior, CleaningType.maintenance)) {
+				double threshold = thresholdMeters.get(type);
+				if (Double.isFinite(threshold)) {
+					// strictly below the threshold, so no vehicle starts out due
+					counters.put(type, random.nextDouble() * threshold);
+				}
 			}
 		}
 	}
