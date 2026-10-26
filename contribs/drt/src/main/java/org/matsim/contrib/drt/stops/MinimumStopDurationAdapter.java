@@ -51,4 +51,9 @@ public class MinimumStopDurationAdapter implements StopTimeCalculator {
 	public double shiftEndTime(DvrpVehicle vehicle, DrtStopTask stop, double beginTime) {
 		return Math.max(beginTime + minimumStopDuration, delegate.shiftEndTime(vehicle, stop, beginTime));
 	}
+
+	@Override
+	public double calculateArrivalSlackCompression(DvrpVehicle vehicle, DrtStopTask stopTask) {
+		return Math.max(0, Math.min(delegate.calculateArrivalSlackCompression(vehicle, stopTask), (stopTask.getEndTime() - minimumStopDuration) - stopTask.getBeginTime()));
+	}
 }

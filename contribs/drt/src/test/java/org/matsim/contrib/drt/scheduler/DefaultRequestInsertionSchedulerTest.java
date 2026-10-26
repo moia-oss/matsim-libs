@@ -5,10 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.contrib.drt.optimizer.StopWaypoint;
-import org.matsim.contrib.drt.optimizer.StopWaypointImpl;
-import org.matsim.contrib.drt.optimizer.VehicleEntry;
-import org.matsim.contrib.drt.optimizer.Waypoint;
+import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.constraints.DrtRouteConstraints;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionDetourTimeCalculator;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionGenerator;
@@ -16,6 +13,7 @@ import org.matsim.contrib.drt.optimizer.insertion.InsertionWithDetourData;
 import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.drt.schedule.*;
+import org.matsim.contrib.drt.stops.DefaultStopTimeCalculator;
 import org.matsim.contrib.drt.stops.MinimumStopDurationAdapter;
 import org.matsim.contrib.drt.stops.PrebookingStopTimeCalculator;
 import org.matsim.contrib.drt.stops.StaticPassengerStopDurationProvider;
@@ -224,7 +222,7 @@ public class DefaultRequestInsertionSchedulerTest {
     }
 
     private StopWaypoint stop(DefaultDrtStopTask stopTask, DvrpLoad outgoingOccupancy) {
-        return new StopWaypointImpl(stopTask, outgoingOccupancy, integerLoadType, false);
+        return new StopWaypointFactoryImpl(integerLoadType, false, new DefaultStopTimeCalculator(60)).createStopWaypoint(stopTask, outgoingOccupancy,null);
     }
 
 

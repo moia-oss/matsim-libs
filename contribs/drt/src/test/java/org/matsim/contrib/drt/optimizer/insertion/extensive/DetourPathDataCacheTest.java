@@ -28,14 +28,12 @@ import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.contrib.drt.optimizer.StopWaypoint;
-import org.matsim.contrib.drt.optimizer.StopWaypointImpl;
-import org.matsim.contrib.drt.optimizer.VehicleEntry;
-import org.matsim.contrib.drt.optimizer.Waypoint;
+import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionGenerator.Insertion;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionWithDetourData.InsertionDetourData;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.drt.schedule.DefaultDrtStopTask;
+import org.matsim.contrib.drt.stops.DefaultStopTimeCalculator;
 import org.matsim.contrib.dvrp.load.IntegerLoadType;
 import org.matsim.contrib.dvrp.path.OneToManyPathSearch.PathData;
 import org.matsim.testcases.fakes.FakeLink;
@@ -140,6 +138,6 @@ public class DetourPathDataCacheTest {
 	}
 
 	private StopWaypoint stop(Link link) {
-		return new StopWaypointImpl(new DefaultDrtStopTask(0, 60, link), LOAD_TYPE.getEmptyLoad(), LOAD_TYPE, false);
+		return new StopWaypointFactoryImpl(LOAD_TYPE, false, new DefaultStopTimeCalculator(60)).createStopWaypoint(new DefaultDrtStopTask(0, 60, link), LOAD_TYPE.getEmptyLoad(), null);
 	}
 }

@@ -72,6 +72,11 @@ public class ShiftBreakStopWaypoint implements StopWaypoint {
     }
 
     @Override
+    public double getDurationCompressionSlack() {
+        return 0;
+    }
+
+    @Override
     public Link getLink() {
         return shiftBreakTask.getLink();
     }

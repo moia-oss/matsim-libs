@@ -27,6 +27,7 @@ import org.matsim.contrib.drt.schedule.DrtStayTask;
 import org.matsim.contrib.drt.schedule.DrtStopTask;
 import org.matsim.contrib.drt.schedule.DrtTaskFactory;
 import org.matsim.contrib.drt.schedule.DrtTaskFactoryImpl;
+import org.matsim.contrib.drt.stops.DefaultStopTimeCalculator;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicleImpl;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicleLookup;
@@ -627,7 +628,8 @@ public class ComplexUnschedulerTest {
 			drtConfig.setStopDuration(30.0);
 			drtConfig.addOrGetDrtOptimizationConstraintsParams().addOrGetDefaultDrtOptimizationConstraintsSet().setMaxWaitTime(600.0);
 
-			this.entryFactory = new VehicleDataEntryFactoryImpl(integerLoadType, new StopWaypointFactoryImpl(integerLoadType, false));
+			this.entryFactory = new VehicleDataEntryFactoryImpl(integerLoadType,
+					new StopWaypointFactoryImpl(integerLoadType, false, new DefaultStopTimeCalculator(30.0)));
 
 			this.timingUpdater = Mockito.mock(ScheduleTimingUpdaterImpl.class);
 		}

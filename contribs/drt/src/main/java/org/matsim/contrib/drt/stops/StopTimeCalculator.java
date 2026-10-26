@@ -68,6 +68,8 @@ public interface StopTimeCalculator {
 	// the begin time of an existing stop is shifted
 	double shiftEndTime(DvrpVehicle vehicle, DrtStopTask stop, double beginTime);
 
+	double calculateArrivalSlackCompression(DvrpVehicle vehicle, DrtStopTask stopTask);
+
 	public record Pickup(double endTime, double pickupTime) {
 	}
 

@@ -20,29 +20,29 @@ public class StopWaypointImpl implements StopWaypoint {
     private final double latestArrivalTime;// relating to max passenger drive time (for dropoff requests)
     private final double earliestArrivalTime;
     private final double latestDepartureTime;// relating to passenger max wait time (for pickup requests)
+    private final double earliestDepartureTime;// earliest time vehicle can depart (all passengers served)
     private final DvrpLoad outgoingOccupancy;
     private final DvrpLoad emptyLoad;
     private final boolean scheduleWaitBeforeDrive;
+    private double compression;
 
     @Nullable
     private final DvrpLoad changedCapacity;
 
-    public StopWaypointImpl(DrtStopTask task, DvrpLoad outgoingOccupancy, DvrpLoadType loadType, boolean scheduleWaitBeforeDrive) {
+    public StopWaypointImpl(DrtStopTask task, DvrpLoad outgoingOccupancy, DvrpLoadType loadType, boolean scheduleWaitBeforeDrive,
+                            double latestArrivalTime, double earliestArrivalTime,
+                            double latestDepartureTime, double earliestDepartureTime,
+                            double compression) {
         this.task = task;
         this.outgoingOccupancy = outgoingOccupancy;
         this.emptyLoad = loadType.getEmptyLoad();
         this.scheduleWaitBeforeDrive = scheduleWaitBeforeDrive;
+        this.compression = compression;
         this.changedCapacity = null;
-
-        // essentially the min of the latest possible arrival times at this stop
-        latestArrivalTime = task.calcLatestArrivalTime();
-
-        // essentially the min of the earliest arrival times at this stop
-        earliestArrivalTime = task.calcEarliestArrivalTime();
-
-        // essentially the min of the latest possible pickup times at this stop
-        latestDepartureTime = task.calcLatestDepartureTime();
-
+        this.latestArrivalTime = latestArrivalTime;
+        this.earliestArrivalTime = earliestArrivalTime;
+        this.latestDepartureTime = latestDepartureTime;
+        this.earliestDepartureTime = earliestDepartureTime;
     }
 
     public StopWaypointImpl(DrtStopTask task, double latestArrivalTime, double latestDepartureTime, DvrpLoad outgoingOccupancy,
@@ -54,7 +54,8 @@ public class StopWaypointImpl implements StopWaypoint {
         this.emptyLoad = loadType.getEmptyLoad();
         this.scheduleWaitBeforeDrive = false;
         this.changedCapacity = null;
-        this.earliestArrivalTime = getArrivalTime();
+        this.earliestArrivalTime = task.getBeginTime();
+        this.earliestDepartureTime = task.calcEarliestDepartureTime();
     }
 
     public StopWaypointImpl(DrtCapacityChangeTask task, DvrpLoadType loadType) {
@@ -65,7 +66,8 @@ public class StopWaypointImpl implements StopWaypoint {
         this.emptyLoad = loadType.getEmptyLoad();
         this.changedCapacity = task.getChangedCapacity();
         this.scheduleWaitBeforeDrive = false;
-        this.earliestArrivalTime = getArrivalTime();
+        this.earliestArrivalTime = task.getBeginTime();
+        this.earliestDepartureTime = task.getEndTime(); // No compression for capacity change tasks
     }
 
     @Override
@@ -123,6 +125,11 @@ public class StopWaypointImpl implements StopWaypoint {
     @Override
     public boolean scheduleWaitBeforeDrive() {
         return scheduleWaitBeforeDrive;
+    }
+
+    @Override
+    public double getDurationCompressionSlack() {
+        return compression;
     }
 
     @Override

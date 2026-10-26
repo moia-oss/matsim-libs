@@ -60,6 +60,10 @@ public class AcceptedDrtRequest {
 	private final double dropoffDuration;
 	private final RequestTiming requestTiming;
 
+	//private final Link accessStopLink;
+	//private final Link egressStopLink;
+;
+
 	private AcceptedDrtRequest(Builder builder) {
 		request = builder.request;
 		earliestStartTime = builder.earliestStartTime;
@@ -149,6 +153,14 @@ public class AcceptedDrtRequest {
 		return requestTiming;
 	}
 
+	//public Link getEgressStopLink() {
+	//	return egressStopLink;
+	//}
+//
+	//public Link getAccessStopLink() {
+	//	return accessStopLink;
+	//}
+
 	@Override
 	public String toString() {
 		return MoreObjects.toStringHelper(this)
@@ -159,7 +171,7 @@ public class AcceptedDrtRequest {
 				.toString();
 	}
 
-	public static final class Builder {
+    public static final class Builder {
 		private DrtRequest request;
 		private double earliestStartTime;
 		private double latestStartTime;

@@ -26,10 +26,7 @@ import static org.matsim.contrib.drt.optimizer.insertion.InsertionCostCalculator
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.contrib.drt.optimizer.StopWaypoint;
-import org.matsim.contrib.drt.optimizer.StopWaypointImpl;
-import org.matsim.contrib.drt.optimizer.VehicleEntry;
-import org.matsim.contrib.drt.optimizer.Waypoint;
+import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.constraints.DrtOptimizationConstraintsSet;
 import org.matsim.contrib.drt.optimizer.constraints.DrtRouteConstraints;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionDetourTimeCalculator.DetourTimeInfo;
@@ -41,6 +38,7 @@ import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
 import org.matsim.contrib.drt.schedule.DefaultDrtStopTask;
 import org.matsim.contrib.drt.schedule.DrtStopTask;
+import org.matsim.contrib.drt.stops.DefaultStopTimeCalculator;
 import org.matsim.contrib.dvrp.load.IntegerLoadType;
 import org.matsim.testcases.fakes.FakeLink;
 
@@ -75,7 +73,7 @@ public class InsertionCostCalculatorTest {
 
 		StopWaypoint[] stops = new StopWaypoint[1];
 		DrtStopTask existingStopTask = new DefaultDrtStopTask(0, 60, link("a"));
-		stops[0] = new StopWaypointImpl(existingStopTask, loadType.fromInt(1), loadType, false);
+		stops[0] = new StopWaypointFactoryImpl(loadType, false, new DefaultStopTimeCalculator(60)).createStopWaypoint(existingStopTask, loadType.fromInt(1), null);
 
 		VehicleEntry entry = entry(new double[] { 20, 20, 50 }, ImmutableList.copyOf(stops), null);
 		var insertion = insertion(entry, 0, 1);
@@ -117,7 +115,7 @@ public class InsertionCostCalculatorTest {
 		existingDropoffTask.addDropoffRequest(existingRequest);
 
 		StopWaypoint[] stops = new StopWaypoint[1];
-		stops[0] = new StopWaypointImpl(existingDropoffTask, loadType.fromInt(1), loadType, false);
+		stops[0] = new StopWaypointFactoryImpl(loadType, false, new DefaultStopTimeCalculator(60)).createStopWaypoint(existingDropoffTask, loadType.fromInt(1), null);
 
 		VehicleEntry entry = entry(new double[] {60, 60, 300}, ImmutableList.copyOf(stops), start);
 		var insertion = insertion(entry, 0, 1);
@@ -196,8 +194,9 @@ public class InsertionCostCalculatorTest {
 		existingDropoffTask.addDropoffRequest(existingRequest);
 
 		StopWaypoint[] stops = new StopWaypoint[2];
-		stops[0] = new StopWaypointImpl(existingPickupTask, loadType.fromInt(2), loadType, false);
-		stops[1] = new StopWaypointImpl(existingDropoffTask, loadType.fromInt(1), loadType, false);
+		StopWaypointFactoryImpl factory = new StopWaypointFactoryImpl(loadType, false, new DefaultStopTimeCalculator(60));
+		stops[0] = factory.createStopWaypoint(existingPickupTask, loadType.fromInt(2), null);
+		stops[1] = factory.createStopWaypoint(existingDropoffTask, loadType.fromInt(1), null);
 
 		VehicleEntry entry = entry(new double[] {60, 60, 60, 300}, ImmutableList.copyOf(stops), start);
 

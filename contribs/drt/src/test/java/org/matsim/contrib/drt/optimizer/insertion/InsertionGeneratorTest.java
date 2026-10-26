@@ -31,10 +31,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.contrib.drt.optimizer.StopWaypoint;
-import org.matsim.contrib.drt.optimizer.StopWaypointImpl;
-import org.matsim.contrib.drt.optimizer.VehicleEntry;
-import org.matsim.contrib.drt.optimizer.Waypoint;
+import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.constraints.DrtRouteConstraints;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionDetourTimeCalculator.DetourTimeInfo;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionDetourTimeCalculator.DropoffDetourInfo;
@@ -604,7 +601,7 @@ public class InsertionGeneratorTest {
 	}
 
 	private StopWaypoint stop(double beginTime, Link link, DvrpLoad outgoingOccupancy) {
-		return new StopWaypointImpl(new DefaultDrtStopTask(beginTime, beginTime + STOP_DURATION, link), outgoingOccupancy, LOAD_TYPE, false);
+		return new StopWaypointFactoryImpl(LOAD_TYPE, false, new DefaultStopTimeCalculator(STOP_DURATION)).createStopWaypoint(new DefaultDrtStopTask(beginTime, beginTime + STOP_DURATION, link), outgoingOccupancy, null);
 	}
 
 	private VehicleEntry entry(Waypoint.Start start, StopWaypoint... stops) {

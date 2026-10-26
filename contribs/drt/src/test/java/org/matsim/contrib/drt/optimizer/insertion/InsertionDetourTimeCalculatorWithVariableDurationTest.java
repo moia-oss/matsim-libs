@@ -28,10 +28,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.contrib.drt.optimizer.StopWaypoint;
-import org.matsim.contrib.drt.optimizer.StopWaypointImpl;
-import org.matsim.contrib.drt.optimizer.VehicleEntry;
-import org.matsim.contrib.drt.optimizer.Waypoint;
+import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionDetourTimeCalculator.DetourTimeInfo;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionGenerator.Insertion;
 import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
@@ -39,6 +36,7 @@ import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.drt.schedule.DefaultDrtStopTask;
 import org.matsim.contrib.drt.schedule.DrtStopTask;
 import org.matsim.contrib.drt.stops.CumulativeStopTimeCalculator;
+import org.matsim.contrib.drt.stops.DefaultStopTimeCalculator;
 import org.matsim.contrib.drt.stops.PassengerStopDurationProvider;
 import org.matsim.contrib.drt.stops.StopTimeCalculator;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
@@ -318,7 +316,7 @@ public class InsertionDetourTimeCalculatorWithVariableDurationTest {
 	private StopWaypoint stop(double beginTime, Link link) {
 		DrtStopTask stopTask = new DefaultDrtStopTask(beginTime, beginTime + STOP_DURATION_INITIAL, link);
 		stopTask.addPickupRequest(AcceptedDrtRequest.createFromOriginalRequest(drtRequestInitial, 60));
-		return new StopWaypointImpl(stopTask, loadType.getEmptyLoad(), loadType, false);
+		return new StopWaypointFactoryImpl(loadType, false, new DefaultStopTimeCalculator(60)).createStopWaypoint(stopTask, loadType.getEmptyLoad(), null);
 	}
 
 	private VehicleEntry entry(Waypoint.Start start, StopWaypoint... stops) {

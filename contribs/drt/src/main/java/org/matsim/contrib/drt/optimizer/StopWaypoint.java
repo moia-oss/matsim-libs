@@ -23,4 +23,7 @@ public interface StopWaypoint extends Waypoint {
     Optional<DvrpLoad> getChangedCapacity();
 
     boolean scheduleWaitBeforeDrive();
+
+    double getDurationCompressionSlack();
+
 }

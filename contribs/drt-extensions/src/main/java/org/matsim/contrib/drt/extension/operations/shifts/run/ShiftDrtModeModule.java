@@ -30,6 +30,7 @@ import org.matsim.contrib.drt.schedule.DrtDriveTask;
 import org.matsim.contrib.drt.schedule.DrtStayTask;
 import org.matsim.contrib.drt.schedule.DrtTaskBaseType;
 import org.matsim.contrib.drt.scheduler.EmptyVehicleRelocator;
+import org.matsim.contrib.drt.stops.StopTimeCalculator;
 import org.matsim.contrib.dvrp.analysis.VehicleOccupancyProfileCalculator;
 import org.matsim.contrib.dvrp.analysis.VehicleOccupancyProfileView;
 import org.matsim.contrib.dvrp.analysis.VehicleTaskProfileCalculator;
@@ -159,7 +160,7 @@ public class ShiftDrtModeModule extends AbstractDvrpModeModule {
 		boolean scheduleWaitBeforeDrive = drtConfigGroup.getPrebookingParams().map(PrebookingParams::isScheduleWaitBeforeDrive).orElse(false);
 		bindModal(StopWaypointFactory.class).toProvider(modalProvider(
 			getter -> new ShiftStopWaypointFactory(
-				new StopWaypointFactoryImpl(getter.getModal(DvrpLoadType.class), scheduleWaitBeforeDrive),
+				new StopWaypointFactoryImpl(getter.getModal(DvrpLoadType.class), scheduleWaitBeforeDrive, getter.getModal(StopTimeCalculator.class)),
 				getter.getModal(DvrpLoadType.class)
 			)
 		));

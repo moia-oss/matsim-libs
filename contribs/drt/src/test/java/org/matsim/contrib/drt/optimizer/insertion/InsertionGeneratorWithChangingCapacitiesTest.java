@@ -9,10 +9,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.contrib.drt.optimizer.StopWaypoint;
-import org.matsim.contrib.drt.optimizer.StopWaypointImpl;
-import org.matsim.contrib.drt.optimizer.VehicleEntry;
-import org.matsim.contrib.drt.optimizer.Waypoint;
+import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.constraints.DrtRouteConstraints;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.drt.schedule.DefaultDrtCapacityChangeTask;
@@ -57,7 +54,7 @@ public class InsertionGeneratorWithChangingCapacitiesTest {
 
 	@SuppressWarnings("SameParameterValue")
 	private StopWaypoint stop(double beginTime, Link link, DvrpLoad outgoingOccupancy) {
-		return new StopWaypointImpl(new DefaultDrtStopTask(beginTime, beginTime + STOP_DURATION, link), outgoingOccupancy, customLoadType, false);
+		return new StopWaypointFactoryImpl(customLoadType, false, new DefaultStopTimeCalculator(STOP_DURATION)).createStopWaypoint(new DefaultDrtStopTask(beginTime, beginTime + STOP_DURATION, link), outgoingOccupancy, null);
 	}
 
 	@SuppressWarnings("SameParameterValue")

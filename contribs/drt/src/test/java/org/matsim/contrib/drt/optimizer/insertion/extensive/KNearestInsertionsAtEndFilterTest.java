@@ -28,16 +28,14 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
-import org.matsim.contrib.drt.optimizer.StopWaypoint;
-import org.matsim.contrib.drt.optimizer.StopWaypointImpl;
-import org.matsim.contrib.drt.optimizer.VehicleEntry;
-import org.matsim.contrib.drt.optimizer.Waypoint;
+import org.matsim.contrib.drt.optimizer.*;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionDetourTimeCalculator.DetourTimeInfo;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionDetourTimeCalculator.PickupDetourInfo;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionGenerator.Insertion;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionGenerator.InsertionPoint;
 import org.matsim.contrib.drt.optimizer.insertion.InsertionWithDetourData;
 import org.matsim.contrib.drt.schedule.DefaultDrtStopTask;
+import org.matsim.contrib.drt.stops.DefaultStopTimeCalculator;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.load.IntegerLoadType;
 
@@ -123,7 +121,7 @@ public class KNearestInsertionsAtEndFilterTest {
 	}
 
 	private StopWaypoint stop(double endTime) {
-		return new StopWaypointImpl(new DefaultDrtStopTask(endTime - 10, endTime, null), loadType.fromInt(0), loadType, false);
+		return new StopWaypointFactoryImpl(loadType, false,new DefaultStopTimeCalculator(60)).createStopWaypoint(new DefaultDrtStopTask(endTime - 10, endTime, null), loadType.fromInt(0), null);
 	}
 
 	private VehicleEntry vehicleEntry(String id, Waypoint.Start start, StopWaypoint... stops) {

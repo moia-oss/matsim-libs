@@ -1,6 +1,7 @@
 package org.matsim.contrib.drt.optimizer;
 
 import org.matsim.contrib.drt.schedule.DrtStopTask;
+import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.load.DvrpLoad;
 import org.matsim.core.mobsim.dsim.NodeSingleton;
 
@@ -10,5 +11,5 @@ import org.matsim.core.mobsim.dsim.NodeSingleton;
 @NodeSingleton
 public interface StopWaypointFactory {
 
-    StopWaypoint createStopWaypoint(DrtStopTask task, DvrpLoad outgoingOccupancy);
+    StopWaypoint createStopWaypoint(DrtStopTask task, DvrpLoad outgoingOccupancy, DvrpVehicle vehicle);
 }

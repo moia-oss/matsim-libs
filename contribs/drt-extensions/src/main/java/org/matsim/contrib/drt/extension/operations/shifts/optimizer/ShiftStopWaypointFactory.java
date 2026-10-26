@@ -5,6 +5,7 @@ import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftChangeOv
 import org.matsim.contrib.drt.optimizer.StopWaypoint;
 import org.matsim.contrib.drt.optimizer.StopWaypointFactory;
 import org.matsim.contrib.drt.schedule.DrtStopTask;
+import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.load.DvrpLoad;
 import org.matsim.contrib.dvrp.load.DvrpLoadType;
 
@@ -22,11 +23,11 @@ public class ShiftStopWaypointFactory implements StopWaypointFactory {
     }
 
     @Override
-    public StopWaypoint createStopWaypoint(DrtStopTask task, DvrpLoad outgoingOccupancy) {
+    public StopWaypoint createStopWaypoint(DrtStopTask task, DvrpLoad outgoingOccupancy, DvrpVehicle vehicle) {
         return switch (task) {
             case ShiftBreakTask shiftBreakTask -> new ShiftBreakStopWaypoint(shiftBreakTask, type, outgoingOccupancy);
             case ShiftChangeOverTask shiftChangeOverTask -> new ShiftChangeoverStopWaypoint(shiftChangeOverTask, type);
-            default -> delegate.createStopWaypoint(task, outgoingOccupancy);
+            default -> delegate.createStopWaypoint(task, outgoingOccupancy, vehicle);
         };
     }
 }

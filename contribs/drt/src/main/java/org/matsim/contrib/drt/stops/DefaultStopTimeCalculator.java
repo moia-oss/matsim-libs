@@ -60,4 +60,9 @@ public class DefaultStopTimeCalculator implements StopTimeCalculator {
 		double stopDuration = stop.getEndTime() - stop.getBeginTime();
 		return beginTime + stopDuration;
 	}
+
+	@Override
+	public double calculateArrivalSlackCompression(DvrpVehicle vehicle, DrtStopTask stopTask) {
+		return Math.max(0,(stopTask.getEndTime() - stopDuration) - stopTask.getBeginTime());
+	}
 }

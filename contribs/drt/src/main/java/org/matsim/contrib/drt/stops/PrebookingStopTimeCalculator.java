@@ -1,5 +1,6 @@
 package org.matsim.contrib.drt.stops;
 
+import org.matsim.contrib.drt.passenger.AcceptedDrtRequest;
 import org.matsim.contrib.drt.passenger.DrtRequest;
 import org.matsim.contrib.drt.schedule.DrtStopTask;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
@@ -85,5 +86,19 @@ public class PrebookingStopTimeCalculator implements StopTimeCalculator {
 		}).max().orElse(beginTime);
 
 		return Math.max(latestPickupEndTime, latestDropoffEndTime);
+	}
+
+	@Override
+	public double calculateArrivalSlackCompression(DvrpVehicle vehicle, DrtStopTask stopTask) {
+		double latestStart = stopTask.getEndTime();
+		for (AcceptedDrtRequest pickup : stopTask.getPickupRequests().values()) {
+			latestStart = Math.min(latestStart, Math.min(stopTask.getEndTime(), pickup.getLatestStartTime()) - provider.calcPickupDuration(vehicle, pickup.getRequest()));
+		}
+
+		for (AcceptedDrtRequest dropoff : stopTask.getDropoffRequests().values()) {
+			latestStart = Math.min(latestStart, Math.min(stopTask.getEndTime(), dropoff.getLatestArrivalTime()) - provider.calcDropoffDuration(vehicle, dropoff.getRequest()));
+		}
+
+		return Math.max(0, latestStart - stopTask.getBeginTime());
 	}
 }

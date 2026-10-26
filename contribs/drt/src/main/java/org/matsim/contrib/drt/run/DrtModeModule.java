@@ -136,7 +136,7 @@ public final class DrtModeModule extends AbstractDvrpModeModule {
 
 		boolean scheduleWaitBeforeDrive = drtCfg.getPrebookingParams().map(PrebookingParams::isScheduleWaitBeforeDrive).orElse(false);
 		bindModal(StopWaypointFactory.class).toProvider(modalProvider(getter ->
-			new StopWaypointFactoryImpl(getter.getModal(DvrpLoadType.class), scheduleWaitBeforeDrive)));
+			new StopWaypointFactoryImpl(getter.getModal(DvrpLoadType.class), scheduleWaitBeforeDrive, getter.getModal(StopTimeCalculator.class))));
 
 	}
 }

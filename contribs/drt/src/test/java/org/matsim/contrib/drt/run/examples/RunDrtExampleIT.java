@@ -610,17 +610,17 @@ public class RunDrtExampleIT {
 
 		controller.run();
 
-		assertEquals(122, tracker.immediateScheduled);
+		assertEquals(123, tracker.immediateScheduled);
 		assertEquals(197, tracker.prebookedScheduled);
-		assertEquals(69, tracker.immediateRejected);
+		assertEquals(68, tracker.immediateRejected);
 		assertEquals(8, tracker.prebookedRejected);
 
 		var expectedStats = Stats.newBuilder()
 				.rejectionRate(0.19)
-				.rejections(77)
-				.waitAverage(202.33)
-				.inVehicleTravelTimeMean(375.53)
-				.totalTravelTimeMean(577.86)
+				.rejections(76)
+				.waitAverage(203.93)
+				.inVehicleTravelTimeMean(375.72)
+				.totalTravelTimeMean(579.65)
 				.build();
 
 		verifyDrtCustomerStatsCloseToExpectedStats(utils.getOutputDirectory(), expectedStats);

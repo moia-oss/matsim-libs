@@ -29,6 +29,9 @@ import org.matsim.core.mobsim.qsim.agents.WithinDayAgentUtils;
 import org.matsim.core.mobsim.qsim.interfaces.MobsimEngine;
 
 import jakarta.annotation.Nullable;
+import org.matsim.core.router.DefaultRoutingRequest;
+import org.matsim.core.router.TripStructureUtils;
+
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -277,6 +280,45 @@ public class PrebookingManager implements MobsimEngine, MobsimAfterSimStepListen
 	private void processScheduledRequests(double now) {
 		for (PassengerRequestScheduledEvent event : scheduledEvents) {
 			RequestItem item = requests.get(event.getRequestId());
+
+
+			for (Id<Person> passengerId : item.request.getPassengerIds()) {
+				MobsimAgent agent = internalInterface.getMobsim().getAgents().get(passengerId);
+				int index = WithinDayAgentUtils.getCurrentPlanElementIndex(agent);
+				Plan plan = WithinDayAgentUtils.getModifiablePlan(agent);
+
+				List<TripStructureUtils.Trip> trips = TripStructureUtils.getTrips(plan);
+				TripStructureUtils.Trip drtTrip = null;
+				for (TripStructureUtils.Trip trip : trips) {
+					for (Leg leg : trip.getLegsOnly()) {
+						Id<Request> requestId = getRequestId(leg);
+						if(requestId != null && requestId.equals(item.request.getId())) {
+							drtTrip = trip;
+							break;
+						}
+					}
+				}
+
+				Verify.verify(drtTrip != null, "Request has no associated trip");
+				Verify.verify(plan.getPlanElements().indexOf(drtTrip.getOriginActivity()) <= index,
+						"Trip has already started");
+				Verify.verify(trips.size() == 5,
+						"Expecting trip size of 5 (access, interaction, leg,");
+
+				// access (sub-)trip:
+				List<? extends PlanElement> accessTrip = accessRouter.calcRoute(
+						DefaultRoutingRequest.of(fromFacility, accessFacility, now, person, request.getAttributes()));
+				if (!accessTrip.isEmpty()) {
+					trip.addAll(accessTrip);
+					now = timeInterpretation.decideOnElementsEndTime(accessTrip, now).seconds();
+
+					// interaction activity:
+					trip.add(createDrtStageActivity(accessFacility, now));
+				}
+
+
+
+			}
 
 			if (item != null) {
 				item.vehicleId = event.getVehicleId();

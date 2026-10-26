@@ -99,16 +99,16 @@ public class VehicleDataEntryFactoryImpl implements VehicleEntry.EntryFactory {
 		DvrpLoad outgoingOccupancy = loadType.getEmptyLoad();
 
 		for (int i = stops.length - 1; i >= 0; i--) {
-				StopWaypoint s = stops[i] = stopWaypointFactory.createStopWaypoint(stopTasks.get(i), outgoingOccupancy);
+				StopWaypoint s = stops[i] = stopWaypointFactory.createStopWaypoint(stopTasks.get(i), outgoingOccupancy, vehicle);
 				outgoingOccupancy = s.getOutgoingOccupancy().subtract(s.getOccupancyChange());
 		}
 
 		StopWaypoint startStop = null;
 		if(startTask != null && STOP.isBaseTypeOf(startTask)) {
 			if(startTask instanceof DrtCapacityChangeTask capacityChangeTask) {
-				startStop = stopWaypointFactory.createStopWaypoint(capacityChangeTask, loadType.getEmptyLoad());
+				startStop = stopWaypointFactory.createStopWaypoint(capacityChangeTask, loadType.getEmptyLoad(), vehicle);
 			} else {
-				startStop = stopWaypointFactory.createStopWaypoint((DrtStopTask) startTask, outgoingOccupancy);
+				startStop = stopWaypointFactory.createStopWaypoint((DrtStopTask) startTask, outgoingOccupancy, vehicle);
 			}
 		}
 
@@ -135,9 +135,15 @@ public class VehicleDataEntryFactoryImpl implements VehicleEntry.EntryFactory {
 
 			onboard.addAll(stop.getTask().getDropoffRequests().values());
 
-			slackTime = Math.min(stop.getLatestArrivalTime() - stop.getTask().getBeginTime(), slackTime);
-			slackTime = Math.min(stop.getLatestDepartureTime() - stop.getTask().getEndTime(), slackTime);
+			// Calculate base slacks without compression buffer
+			double arrivalSlack = stop.getLatestArrivalTime() - stop.getTask().getBeginTime();
+			double departureSlackBase = stop.getLatestDepartureTime() - stop.getTask().getEndTime();
+			double compressionSlack = stop.getDurationCompressionSlack();
 
+			// Calculate hard constraints (without buffers)
+			double localConstraint = Math.min(arrivalSlack, departureSlackBase);
+
+			// Apply ride duration constraints
 			for (AcceptedDrtRequest req : onboard) {
 				double plannedPickupTime = req.getRequestTiming().getPlannedPickupTime().orElseThrow(()
 						-> new IllegalStateException("Accepted request should have a (planned) pickup time at this point."));
@@ -145,10 +151,18 @@ public class VehicleDataEntryFactoryImpl implements VehicleEntry.EntryFactory {
 						-> new IllegalStateException("Accepted request should have a (planned) dropoff time at this point."));
 				double currentRideDuration = plannedDropoffTime - plannedPickupTime;
 				double currentRideSlack = Math.max(0, req.getMaxRideDuration() - currentRideDuration);
-				slackTime = Math.min(slackTime, currentRideSlack);
+				localConstraint = Math.min(localConstraint, currentRideSlack);
 			}
 
-			slackTime += precedingStayTimes.get(i); // reset slack before prebooked request
+			// Combine with downstream constraint
+			slackTime = Math.min(localConstraint, slackTime);
+
+			// Add compression buffer - limited by arrival constraint to prevent violating hard arrival limits
+			double effectiveCompression = Math.min(compressionSlack, arrivalSlack);
+			slackTime += effectiveCompression;
+
+			// Add stay time buffer
+			slackTime += precedingStayTimes.get(i);
 			slackTimes[i + 1] = slackTime;
 
 			onboard.removeAll(stop.getTask().getPickupRequests().values());
