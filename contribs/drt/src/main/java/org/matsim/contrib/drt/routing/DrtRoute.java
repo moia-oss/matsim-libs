@@ -17,10 +17,12 @@
  * *********************************************************************** */
 package org.matsim.contrib.drt.routing;
 
+import com.ctc.wstx.shaded.msv_core.verifier.Verifier;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.MoreObjects;
+import com.google.common.base.Verify;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Link;
@@ -53,8 +55,11 @@ public class DrtRoute extends AbstractRoute {
 	public final static String ROUTE_TYPE = TransportMode.drt;
 	private RouteDescription routeDescription = null;
 
-	public DrtRoute(Id<Link> startLinkId, Id<Link> endLinkId) {
-		super(startLinkId, endLinkId);
+	private List<Id<Link>> startLinkIds;
+	private List<Id<Link>> endLinkIds;
+
+	public DrtRoute(Id<Link> preferredStartLinkId, Id<Link> preferredEndLinkId) {
+		super(preferredStartLinkId, preferredEndLinkId);
 		this.routeDescription = new RouteDescription();
 	}
 
@@ -88,6 +93,16 @@ public class DrtRoute extends AbstractRoute {
 		//TODO: consolidate constraints / route description
 		this.routeDescription.setConstraints(constraints);
 		super.setTravelTime(constraints.maxTravelDuration());
+	}
+
+	public void setStartLinkIds(List<Id<Link>> startLinkIds) {
+		Verify.verify(startLinkIds.contains(super.getStartLinkId()), "preferredStartLinkId must be in startLinkIds");
+		this.startLinkIds = List.copyOf(startLinkIds);
+	}
+
+	public void setEndLinkIds(List<Id<Link>> endLinkIds) {
+		Verify.verify(endLinkIds.contains(super.getEndLinkId()), "preferredEndLinkId must be in endLinkIds");
+		this.endLinkIds = List.copyOf(endLinkIds);
 	}
 
 	private DvrpLoad load;
@@ -147,6 +162,14 @@ public class DrtRoute extends AbstractRoute {
 				.add("load", routeDescription.getLoad())
 				.add("super", super.toString())
 				.toString();
+	}
+
+	public List<Id<Link>> getStartLinkIds() {
+		return startLinkIds;
+	}
+
+	public List<Id<Link>> getEndLinkIds() {
+		return endLinkIds;
 	}
 
 

@@ -196,6 +196,11 @@ public class DefaultRequestInsertionScheduler implements RequestInsertionSchedul
 		int dropoffIdx = insertion.dropoff.index;
 		var detourData = insertionWithDetourData.detourData;
 
+		// Get the selected pickup link from the insertion (not from request, which may have multiple candidates)
+		Link pickupLink = insertion.pickup.newWaypoint.getLink();
+		// Get the selected dropoff link for use when pickup == dropoff index
+		Link dropoffLink = insertion.dropoff.newWaypoint.getLink();
+
 		ScheduleStatus scheduleStatus = schedule.getStatus();
 		Task currentTask = scheduleStatus == ScheduleStatus.PLANNED ? null : schedule.getCurrentTask();
 		Task beforePickupTask;
@@ -336,6 +341,13 @@ boolean canMergePickup = stopTask != null && !(stopTask instanceof CapacityChang
 					afterPickupTask.getEndTime());
 			}
 		} else {
+			System.err.println("DEBUG: pickupLink=" + request.getPickupLink());
+			System.err.println("DEBUG: toLink=" + toLink);
+			System.err.println("DEBUG: insertion.pickup.nextWaypoint.getLink()=" + insertion.pickup.nextWaypoint.getLink());
+			if (!detourData.detourFromPickup.getPath().links.isEmpty()) {
+				System.err.println("DEBUG: path.links.get(0)=" + detourData.detourFromPickup.getPath().links.get(0));
+			}
+
 			VrpPathWithTravelData vrpPath = VrpPaths.createPath(request.getPickupLink(), toLink, pickupStopTask.getEndTime(),
 				detourData.detourFromPickup, travelTime);
 

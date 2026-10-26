@@ -1,5 +1,9 @@
 package org.matsim.contrib.drt.prebooking;
 
+import com.google.inject.Inject;
+import com.google.inject.TypeLiteral;
+import com.google.inject.name.Named;
+import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.api.core.v01.population.Population;
 import org.matsim.contrib.drt.optimizer.VehicleEntry;
@@ -21,17 +25,23 @@ import org.matsim.contrib.dvrp.passenger.PassengerGroupIdentifier;
 import org.matsim.contrib.dvrp.passenger.PassengerHandler;
 import org.matsim.contrib.dvrp.passenger.PassengerRequestCreator;
 import org.matsim.contrib.dvrp.passenger.PassengerRequestValidator;
+import org.matsim.contrib.dvrp.router.DvrpRoutingModuleProvider;
 import org.matsim.contrib.dvrp.router.TimeAsTravelDisutility;
 import org.matsim.contrib.dvrp.run.AbstractDvrpModeQSimModule;
 import org.matsim.contrib.dvrp.schedule.ScheduleTimingUpdater;
 import org.matsim.core.api.experimental.events.EventsManager;
 import org.matsim.core.mobsim.framework.MobsimTimer;
 import org.matsim.core.mobsim.qsim.QSim;
+import org.matsim.core.router.RoutingModule;
 import org.matsim.core.router.speedy.SpeedyALTFactory;
 import org.matsim.core.router.util.LeastCostPathCalculator;
 import org.matsim.core.router.util.TravelTime;
 
 import com.google.inject.Singleton;
+import org.matsim.facilities.ActivityFacilities;
+
+import java.util.Map;
+import java.util.Objects;
 
 public class PrebookingModeQSimModule extends AbstractDvrpModeQSimModule {
 	private final PrebookingParams prebookingParams;
@@ -64,8 +74,19 @@ public class PrebookingModeQSimModule extends AbstractDvrpModeQSimModule {
 			RequestUnscheduler requestUnscheduler = getter.getModal(RequestUnscheduler.class);
 			MobsimTimer mobsimTimer = getter.get(MobsimTimer.class);
 
+			RoutingModule walkRouter = getter.getNamed(RoutingModule.class, TransportMode.walk);
+
+			Map<DvrpRoutingModuleProvider.Stage, RoutingModule> stageRouters = getter.getModal(new TypeLiteral<Map<DvrpRoutingModuleProvider.Stage, RoutingModule>>() {});
+			RoutingModule mainRouter = Objects.requireNonNull(stageRouters.get(DvrpRoutingModuleProvider.Stage.MAIN),
+					"Main mode router must be explicitly bound");
+			RoutingModule accessRouter = stageRouters.getOrDefault(DvrpRoutingModuleProvider.Stage.ACCESS, walkRouter);
+			RoutingModule egressRouter = stageRouters.getOrDefault(DvrpRoutingModuleProvider.Stage.EGRESS, walkRouter);
+
+			DynamicAccessEgressHandler dynamicAccessEgressHandler = new DynamicAccessEgressHandler(getMode(), getter.get(ActivityFacilities.class), getter.get(Population.class),
+					accessRouter, egressRouter, network);
+
 			return new PrebookingManager(getMode(), network, requestCreator, optimizer, mobsimTimer, requestValidator,
-					eventsManager, requestUnscheduler, prebookingParams.isAbortRejectedPrebookings());
+					eventsManager, requestUnscheduler, prebookingParams.isAbortRejectedPrebookings(), dynamicAccessEgressHandler);
 		})).in(Singleton.class);
 		addModalQSimComponentBinding().to(modalKey(PrebookingManager.class));
 
