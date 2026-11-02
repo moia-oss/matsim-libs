@@ -158,8 +158,10 @@ public class DrtModeRoutingModule extends AbstractDvrpModeModule {
 				} else {
 					var maxWalkDistance = maxWalkDistance(getter.getModal(ConstraintSetChooser.class),
 							optimizationConstraintsSet, network);
+					var maxStopCandidates = maxStopCandidates(getter.getModal(ConstraintSetChooser.class),
+							optimizationConstraintsSet, network);
 					delegateFactory = regime -> new ClosestAccessEgressFacilityFinder(maxWalkDistance,
-							optimizationConstraintsSet.getMaxWalkDistance(), network,
+							maxStopCandidates, optimizationConstraintsSet.getMaxWalkDistance(), network,
 							QuadTrees.createQuadTree(regime.stops()));
 				}
 				List<TimeDependentAccessEgressFacilityFinder.TimeWindow> timeWindows = getter.getModal(
@@ -185,6 +187,7 @@ public class DrtModeRoutingModule extends AbstractDvrpModeModule {
 										// maxWalkDistance is a property of the constraints set, and which constraints set applies
 										// is decided per trip by the ConstraintSetChooser (as in DefaultDrtRouteConstraintsCalculator)
 										maxWalkDistance( getter.getModal( ConstraintSetChooser.class ), optimizationConstraintsSet, network ),
+										maxStopCandidates( getter.getModal( ConstraintSetChooser.class ), optimizationConstraintsSet, network ),
 										optimizationConstraintsSet.getMaxWalkDistance(),
 															     network,
 															     QuadTrees.createQuadTree( getter.getModal( DrtStopNetwork.class ).getDrtStops().values() ) );
@@ -232,6 +235,20 @@ public class DrtModeRoutingModule extends AbstractDvrpModeModule {
 						network.getLinks().get(egressFacility.getLinkId()), request.getPerson(), request.getAttributes())
 				.orElse(defaultConstraintsSet)
 				.getMaxWalkDistance();
+	}
+
+	/**
+	 * The maximum number of stop candidates, taken from the constraints set chosen for the trip (like
+	 * {@link #maxWalkDistance}).
+	 */
+	public static ClosestAccessEgressFacilityFinder.MaxStopCandidates maxStopCandidates(
+			ConstraintSetChooser constraintSetChooser, DrtOptimizationConstraintsSet defaultConstraintsSet,
+			Network network) {
+		return (request, accessFacility, egressFacility) -> constraintSetChooser.chooseConstraintSet(
+						request.getDepartureTime(), network.getLinks().get(accessFacility.getLinkId()),
+						network.getLinks().get(egressFacility.getLinkId()), request.getPerson(), request.getAttributes())
+				.orElse(defaultConstraintsSet)
+				.getMaxStopCandidates();
 	}
 
 	private static class DrtRouteCreatorProvider extends ModalProviders.AbstractProvider<DvrpMode, DrtRouteCreator> {
