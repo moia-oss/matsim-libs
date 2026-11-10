@@ -56,6 +56,7 @@ final class CCHPotentialSearch {
 	private final CHGraph cch;
 	private final TravelTime tt;
 	private final TravelDisutility td;
+	private final FlatCosts flat;
 	private final SpeedyGraph.LinkIterator outLI, inLI;
 
 	// labels, valid where stamp == query
@@ -82,6 +83,7 @@ final class CCHPotentialSearch {
 		this.cch = potentials.cch;
 		this.tt = tt;
 		this.td = td;
+		this.flat = potentials.flat;
 		int n = graph.nodeCount;
 		this.outLI = graph.getOutLinkIterator();
 		this.inLI = graph.getInLinkIterator();
@@ -144,6 +146,8 @@ final class CCHPotentialSearch {
 		}
 		int first = -1;
 		SpeedyGraph.LinkIterator li = forward ? outLI : inLI;
+		// the sampled costs have no person or vehicle (an estimator may cap travel times by vehicle speed)
+		boolean useFlat = flat != null && person == null && vehicle == null;
 		while (!pq.isEmpty() && remaining > 0) {
 			if (pq.peekCost() > maxCost) break;
 			int v = pq.poll();
@@ -164,9 +168,9 @@ final class CCHPotentialSearch {
 				int linkIdx = li.getLinkIndex();
 				Link link = graph.getLink(linkIdx);
 				int x = forward ? li.getToNodeIndex() : li.getFromNodeIndex();
-				double travelTime = tt.getLinkTravelTime(link, tv, person, vehicle);
+				double travelTime = useFlat ? flat.travelTime(linkIdx, tv) : tt.getLinkTravelTime(link, tv, person, vehicle);
 				double newTime = forward ? tv + travelTime : tv - travelTime;
-				double newCost = cv + td.getLinkTravelDisutility(link, tv, person, vehicle);
+				double newCost = cv + (useFlat ? flat.cost(linkIdx, tv) : td.getLinkTravelDisutility(link, tv, person, vehicle));
 				if (labelled(x)) {
 					// a settled label is final: the potential is consistent, so A* pops nodes in Dijkstra's order of
 					// reduced costs (and DAryMinHeap does not support re-inserting popped nodes)

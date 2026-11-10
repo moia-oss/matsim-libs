@@ -30,6 +30,7 @@ import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.core.router.util.TravelDisutility;
+import org.matsim.core.router.util.TravelTime;
 
 /**
  * Lower bounds on link costs for exact A* with CH-Potentials (Strasser and Zeitz, SEA 2021,
@@ -78,8 +79,10 @@ public final class CCHPotentials {
 	final float[] allDay;
 	/** Internal indices of all colored copies per node, by uncolored internal index; null without turn restrictions. */
 	final int[][] copies;
+	/** Per-bin link costs for the search to read directly; null when the costs cannot be sampled (person-dependent). */
+	final FlatCosts flat;
 
-	private CCHPotentials(SpeedyGraph graph, CHGraph cch, double binSize, int bins, int window, float[][] windows, float[] allDay) {
+	private CCHPotentials(SpeedyGraph graph, CHGraph cch, double binSize, int bins, int window, float[][] windows, float[] allDay, FlatCosts flat) {
 		this.graph = graph;
 		this.cch = cch;
 		this.binSize = binSize;
@@ -87,6 +90,7 @@ public final class CCHPotentials {
 		this.window = window;
 		this.windows = windows;
 		this.allDay = allDay;
+		this.flat = flat;
 		this.copies = graph.getTurnRestrictions().isPresent() ? coloredCopies(graph) : null;
 	}
 
@@ -126,6 +130,14 @@ public final class CCHPotentials {
 	 * @param horizon time after which the disutility no longer changes (the travel time calculator's max time)
 	 */
 	public static CCHPotentials customize(SpeedyGraph graph, CHGraph cch, TravelDisutility td, double binSize, double horizon) {
+		return customize(graph, cch, null, td, binSize, horizon);
+	}
+
+	/**
+	 * As above, and with a travel time also samples the exact per-bin link costs, so searches read them from arrays
+	 * ({@link FlatCosts}). Pass the same travel time and disutility the searches will use.
+	 */
+	public static CCHPotentials customize(SpeedyGraph graph, CHGraph cch, TravelTime tt, TravelDisutility td, double binSize, double horizon) {
 		if (!cch.isCustomizable()) {
 			throw new IllegalStateException("CH-Potentials need a customizable contraction (CHBuilder#withCustomizableContraction)");
 		}
@@ -139,6 +151,7 @@ public final class CCHPotentials {
 
 		float[][] windows = new float[bins][];
 		float[] allDay;
+		FlatCosts flat = null;
 		if (needsPerson(graph, td)) {
 			// Person-dependent costs (e.g. randomized routing) have no valid per-time sample without a person; their
 			// time-independent minimum is the bound by contract, as for SpeedyALT's landmarks.
@@ -153,12 +166,22 @@ public final class CCHPotentials {
 		} else {
 			// samples[j][link]: disutility of entering the link at the start of bin j (j = bins is the horizon)
 			float[][] samples = new float[bins + 1][graph.linkCount];
+			if (tt != null) flat = new FlatCosts(graph.linkCount, binSize, bins);
+			FlatCosts sampled = flat;
 			IntStream.range(0, graph.linkCount).parallel().forEach(l -> {
 				Link link = graph.getLink(l);
 				if (link == null) return;
+				double[] times = sampled == null ? null : new double[bins + 1];
+				double[] costs = sampled == null ? null : new double[bins + 1];
 				for (int j = 0; j <= bins; j++) {
-					samples[j][l] = down(td.getLinkTravelDisutility(link, j * binSize, null, null));
+					double cost = td.getLinkTravelDisutility(link, j * binSize, null, null);
+					samples[j][l] = down(cost);
+					if (sampled != null) {
+						costs[j] = cost;
+						times[j] = tt.getLinkTravelTime(link, j * binSize, null, null);
+					}
 				}
+				if (sampled != null) sampled.set(l, times, costs);
 			});
 			IntStream.range(0, bins).parallel().forEach(k -> windows[k] = metric(cch, samples, k, Math.min(bins, k + window - 1)));
 			allDay = metric(cch, samples, 0, bins);
@@ -166,7 +189,7 @@ public final class CCHPotentials {
 
 		LOG.info("[CCH] potentials: {} windows of {} bins ({} s each) up to {} h, {} edges, {} s", bins, window,
 				binSize, horizon / 3600, edges, secs(System.nanoTime() - start));
-		return new CCHPotentials(graph, cch, binSize, bins, window, windows, allDay);
+		return new CCHPotentials(graph, cch, binSize, bins, window, windows, allDay, flat);
 	}
 
 	/** Lower-bound metric over samples [first, last] (inclusive): real edges from the samples, shortcuts bottom-up. */
