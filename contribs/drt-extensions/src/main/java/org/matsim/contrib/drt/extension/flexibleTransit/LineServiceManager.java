@@ -13,10 +13,8 @@ import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.fleet.Fleet;
 import org.matsim.contrib.dvrp.path.VrpPathWithTravelData;
 import org.matsim.contrib.dvrp.path.VrpPaths;
-import org.matsim.contrib.dvrp.schedule.CapacityChangeTask;
-import org.matsim.contrib.dvrp.schedule.Schedule;
-import org.matsim.contrib.dvrp.schedule.Schedules;
-import org.matsim.contrib.dvrp.schedule.Task;
+import org.matsim.contrib.dvrp.schedule.*;
+import org.matsim.contrib.dvrp.tracker.OnlineDriveTaskTracker;
 import org.matsim.core.api.experimental.events.EventsManager;
 import org.matsim.core.gbl.Gbl;
 import org.matsim.core.router.util.LeastCostPathCalculator;
@@ -241,10 +239,9 @@ public class LineServiceManager {
 
                 } else if (currentTask instanceof DrtDriveTask) {
                     /*
-                     * The current drive has already been represented by vehicleEntry.start
-                     * at its diversion point.
+                     * The diversion point of the current drive is already represented by vehicleEntry.start.
+                     * Here, we only need to remove the last (stay) task. Later, in addLineService, we divert the ongoing drive task.
                      */
-                    //TODO test
                     schedule.removeLastTask();
 
                 } else {
@@ -404,7 +401,6 @@ public class LineServiceManager {
 
     }
 
-     //TODO: test whether this correctly works with ongoing DRIVE task and insertion at idx 0!!!
     private DrtStopTask addLineService(DvrpVehicle vehicle,
                                        Schedule schedule,
                                        LineService lineService,
@@ -433,11 +429,16 @@ public class LineServiceManager {
                         router,
                         travelTime);
 
-        schedule.addTask(
-                taskFactory.createDriveTask(
-                        vehicle,
-                        pathToService,
-                        DrtDriveTask.TYPE));
+        // if the current task is a drive we need to divert the path instead of _adding_ a drive task
+        if (schedule.getTasks().getLast() instanceof DriveTask && schedule.getCurrentTask() instanceof DriveTask){
+            ((OnlineDriveTaskTracker)schedule.getCurrentTask().getTaskTracker()).divertPath(pathToService);
+        } else {
+            schedule.addTask(
+                    taskFactory.createDriveTask(
+                            vehicle,
+                            pathToService,
+                            DrtDriveTask.TYPE));
+        }
 
         /*
          * Wait until the scheduled LineService departure if necessary.
