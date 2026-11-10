@@ -1,63 +1,56 @@
 package org.matsim.contrib.drt.optimizer.insertion.extensive;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
+import org.matsim.core.config.groups.TravelTimeCalculatorConfigGroup;
 import org.matsim.core.mobsim.framework.events.MobsimBeforeCleanupEvent;
 import org.matsim.core.mobsim.framework.listeners.MobsimBeforeCleanupListener;
-import org.matsim.core.router.speedy.InertialFlowCutter;
-import org.matsim.core.router.speedy.CHBuilder;
-import org.matsim.core.router.speedy.CHGraph;
-import org.matsim.core.router.speedy.CHTTFCustomizer;
+import org.matsim.core.router.speedy.CCHPotentials;
 import org.matsim.core.router.speedy.SpeedyGraph;
-import org.matsim.core.router.speedy.SpeedyGraphBuilder;
 import org.matsim.core.router.util.TravelDisutility;
 import org.matsim.core.router.util.TravelTime;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class MultiInsertionDetourPathCalculatorManager implements MobsimBeforeCleanupListener {
-
-	private static final Logger LOG = LogManager.getLogger(MultiInsertionDetourPathCalculatorManager.class);
-
-	/**
-	 * Static, cross-instance cache for fully built CH graph skeletons.
-	 * <p>
-	 * Keyed by {@link SpeedyGraph} (i.e. by network topology).  The expensive
-	 * CH contraction (InertialFlowCutter + CHBuilder) is performed only once per
-	 * network.  The TTF customization (weight assignment) is done on each access
-	 * via {@link CHTTFCustomizer} which uses a fingerprint-based fast no-op
-	 * check to skip when travel times have not changed.
-	 */
-	private static final Map<SpeedyGraph, CHGraph> CH_GRAPH_CACHE = new ConcurrentHashMap<>();
-	private static final Map<Network, SpeedyGraph> BASE_GRAPH_CACHE = new ConcurrentHashMap<>();
 
 	private final Network network;
 	private final TravelTime travelTime;
 	private final TravelDisutility travelDisutility;
 	private final DrtConfigGroup drtCfg;
 	private final boolean useCH;
+	private final double binSize;
+	private final double horizon;
 	private final List<MultiInsertionDetourPathCalculator> multiInsertionDetourPathCalculatorList;
+
+	/** Lower bounds for this manager's travel times, computed on first use and shared by its calculators. */
+	private CCHPotentials potentials;
 
 	/**
 	 * Creates a new manager.
 	 *
-	 * @param useCH if {@code true}, uses the CH (Contraction Hierarchies) accelerated
-	 *              one-to-many path search; derive this from
+	 * @param useCH if {@code true}, uses the exact goal-directed one-to-many search (multi-target CH-Potentials);
+	 *              derive this from
 	 *              {@code config.controller().getRoutingAlgorithmType() == ControllerConfigGroup.RoutingAlgorithmType.CHRouter}.
+	 * @param travelTimeConfig bin size and horizon of the travel times, for the CH-Potentials' lower bounds
 	 */
 	MultiInsertionDetourPathCalculatorManager(Network network, TravelTime travelTime, TravelDisutility travelDisutility,
-											  DrtConfigGroup drtCfg, boolean useCH) {
+											  DrtConfigGroup drtCfg, boolean useCH, TravelTimeCalculatorConfigGroup travelTimeConfig) {
 		this.network = network;
 		this.travelTime = travelTime;
 		this.travelDisutility = travelDisutility;
 		this.drtCfg = drtCfg;
 		this.useCH = useCH;
+		this.binSize = travelTimeConfig.getTraveltimeBinSize();
+		this.horizon = travelTimeConfig.getMaxTime();
 		this.multiInsertionDetourPathCalculatorList = new ArrayList<>();
+	}
+
+	/** As above, with the default travel time configuration. */
+	MultiInsertionDetourPathCalculatorManager(Network network, TravelTime travelTime, TravelDisutility travelDisutility,
+											  DrtConfigGroup drtCfg, boolean useCH) {
+		this(network, travelTime, travelDisutility, drtCfg, useCH, new TravelTimeCalculatorConfigGroup());
 	}
 
 	@Override
@@ -68,7 +61,7 @@ public class MultiInsertionDetourPathCalculatorManager implements MobsimBeforeCl
 	MultiInsertionDetourPathCalculator create() {
 		MultiInsertionDetourPathCalculator instance;
 		if (useCH) {
-			instance = new MultiInsertionDetourPathCalculator(getOrBuildCHGraph(), travelTime, travelDisutility, drtCfg);
+			instance = new MultiInsertionDetourPathCalculator(potentials(), travelTime, travelDisutility, drtCfg);
 		} else {
 			instance = new MultiInsertionDetourPathCalculator(network, travelTime, travelDisutility, drtCfg);
 		}
@@ -77,30 +70,15 @@ public class MultiInsertionDetourPathCalculatorManager implements MobsimBeforeCl
 	}
 
 	/**
-	 * Returns a shared CH graph for this network, building the contraction
-	 * hierarchy on first access and (re-)customizing with current travel times.
-	 * The contraction topology is cached per network; the TTF customization
-	 * uses a fingerprint-based fast check to skip when travel times have not
-	 * changed (the common case within a single MATSim iteration).
+	 * The contraction is shared per network (it does not depend on costs). The lower bounds are computed once per
+	 * manager: the manager lives in the QSim scope, so once per iteration, and the DVRP travel time estimates it
+	 * reads only change after the mobsim.
 	 */
-	private CHGraph getOrBuildCHGraph() {
-		SpeedyGraph baseGraph = BASE_GRAPH_CACHE.computeIfAbsent(network, SpeedyGraphBuilder::build);
-		CHGraph chGraph = CH_GRAPH_CACHE.computeIfAbsent(baseGraph, k -> {
-			LOG.info("Building CHRouter graph for DRT insertion search on network with {} nodes, {} links – one-time cost.",
-					network.getNodes().size(), network.getLinks().size());
-			InertialFlowCutter.NDOrderResult ndOrder = new InertialFlowCutter(baseGraph).computeOrderWithBatches();
-			return new CHBuilder(baseGraph, travelDisutility).buildWithOrderParallel(ndOrder);
-		});
-		// (Re-)customise with current travel times.
-		// Double-checked locking: check the volatile fingerprint outside the lock
-		// to avoid contention when travel times haven't changed (common case within
-		// a single MATSim iteration).  Only enter synchronized when a real update
-		// is needed; the inner customize() re-checks under lock.
-		if (CHTTFCustomizer.needsRecustomization(chGraph, travelTime)) {
-			synchronized (chGraph) {
-				new CHTTFCustomizer().customize(chGraph, travelTime, travelDisutility);
-			}
+	private synchronized CCHPotentials potentials() {
+		if (potentials == null) {
+			SpeedyGraph graph = CCHPotentials.baseGraph(network);
+			potentials = CCHPotentials.customize(graph, CCHPotentials.contraction(graph, travelDisutility), travelDisutility, binSize, horizon);
 		}
-		return chGraph;
+		return potentials;
 	}
 }

@@ -72,6 +72,17 @@ class OneToManyPathCalculator {
 			return;
 		}
 
+		if (maxTravelTime == Double.POSITIVE_INFINITY) {
+			// no cutoff: the search only has to reach the targets, which goal-directed trees exploit
+			var allReached = allEndNodesReached(toNodes);
+			if (forwardSearch) {
+				dijkstraTree.calculateToTargets(fromLink, startTime, null, null, toNodes, allReached);
+			} else {
+				dijkstraTree.calculateBackwardsToTargets(fromLink, startTime, null, null, toNodes, allReached);
+			}
+			return;
+		}
+
 		var stopCriterion = withMaxTravelTime(allEndNodesReached(toNodes), maxTravelTime);
 
 		if (forwardSearch) {
