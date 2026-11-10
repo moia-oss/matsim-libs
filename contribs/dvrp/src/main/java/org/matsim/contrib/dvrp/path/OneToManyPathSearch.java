@@ -31,7 +31,9 @@ import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Node;
 import org.matsim.core.router.speedy.LeastCostPathTree;
 import org.matsim.core.router.speedy.ShortestPathTree;
+import org.matsim.core.router.speedy.CCHPotentials;
 import org.matsim.core.router.speedy.CHGraph;
+import org.matsim.core.router.speedy.CHPotentialTree;
 import org.matsim.core.router.speedy.CHLeastCostPathTree;
 import org.matsim.core.router.speedy.SpeedyGraph;
 import org.matsim.core.router.util.TravelDisutility;
@@ -62,6 +64,16 @@ public class OneToManyPathSearch {
 			TravelDisutility travelDisutility, boolean lazyPathCreation) {
 		return new OneToManyPathSearch(new CHLeastCostPathTree(chGraph, travelTime, travelDisutility),
 				travelTime, lazyPathCreation);
+	}
+
+	/**
+	 * Creates an exact goal-directed one-to-many path search: multi-target A* with CH-Potentials
+	 * ({@link CHPotentialTree}). Target labels equal those of {@link #createSearch}.
+	 */
+	public static OneToManyPathSearch createSearchCHPotentials(CCHPotentials potentials, TravelTime travelTime,
+			TravelDisutility travelDisutility, boolean lazyPathCreation) {
+		return new OneToManyPathSearch(new CHPotentialTree(potentials, travelTime, travelDisutility), travelTime,
+				lazyPathCreation);
 	}
 
 	public static class PathData {
