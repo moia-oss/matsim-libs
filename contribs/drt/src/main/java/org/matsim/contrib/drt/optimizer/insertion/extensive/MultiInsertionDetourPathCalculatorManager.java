@@ -77,7 +77,7 @@ public class MultiInsertionDetourPathCalculatorManager implements MobsimBeforeCl
 	private synchronized CCHPotentials potentials() {
 		if (potentials == null) {
 			SpeedyGraph graph = CCHPotentials.baseGraph(network);
-			potentials = CCHPotentials.customize(graph, CCHPotentials.contraction(graph, travelDisutility), travelDisutility, binSize, horizon);
+			potentials = CCHPotentials.customize(graph, CCHPotentials.contraction(graph, travelDisutility), travelTime, travelDisutility, binSize, horizon);
 		}
 		return potentials;
 	}

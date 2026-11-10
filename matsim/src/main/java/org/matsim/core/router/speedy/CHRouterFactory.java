@@ -93,7 +93,7 @@ public class CHRouterFactory implements LeastCostPathCalculatorFactory, Iteratio
 		}
 		return potentials.computeIfAbsent(new Key(network, td.getClass(), tt.getClass()), k -> {
 			SpeedyGraph graph = CCHPotentials.baseGraph(network);
-			return CCHPotentials.customize(graph, CCHPotentials.contraction(graph, td), td, binSize, horizon);
+			return CCHPotentials.customize(graph, CCHPotentials.contraction(graph, td), tt, td, binSize, horizon);
 		});
 	}
 }
