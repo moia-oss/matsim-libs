@@ -171,6 +171,36 @@ public class CHGraph {
      */
     volatile double customizationFingerprint = Double.NaN;
 
+    // --- Customizable CH (CCH) only; null for a regular CH ---
+    //
+    // A CCH shortcut u -> w stands for every path u -> v -> w through a lower node v (its lower triangles),
+    // not for one fixed middle node. For a static metric its weight is the minimum over its triangles, so the
+    // structure is exact for any metric (see CCHPotentials). Triangles of edge e: indices triOff[e] .. triOff[e+1]-1
+    // of triLower1 (edge u -> v) and triLower2 (edge v -> w), all global edge indices.
+    //
+    //           u ---------- w        shortcut u -> w
+    //            \    / \   /
+    //             v1 ... vk           w(u->w) = min over triangles of w(u->v) + w(v->w)
+    //
+    // cchOrder lists the shortcuts in increasing level of their lower endpoint: a triangle's edges have a lower
+    // endpoint below both u and w, so they are final when the shortcut is computed.
+    int[] triOff;
+    int[] triLower1;
+    int[] triLower2;
+    int[] cchOrder;
+
+    /** Whether this graph was built by customizable contraction (see {@link CHBuilder#withCustomizableContraction()}). */
+    public boolean isCustomizable() {
+        return triOff != null;
+    }
+
+    void setTriangles(int[] triOff, int[] triLower1, int[] triLower2, int[] cchOrder) {
+        this.triOff = triOff;
+        this.triLower1 = triLower1;
+        this.triLower2 = triLower2;
+        this.cchOrder = cchOrder;
+    }
+
     /** Returns the total number of edges (upward + downward) in the CH overlay graph. */
     public int getTotalEdgeCount() {
         return this.totalEdgeCount;
