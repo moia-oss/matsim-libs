@@ -19,6 +19,7 @@
  * *********************************************************************** */
 package org.matsim.core.router.speedy;
 
+import java.lang.ref.SoftReference;
 import java.util.Collections;
 import java.util.Locale;
 import java.util.Map;
@@ -65,8 +66,13 @@ public final class CCHPotentials {
 	/** Window length in bins. One hour at 900 s bins was the fastest of 1, 1.5 and 2 h on Hamburg (see logbook). */
 	static final double WINDOW_SECONDS = 3600.0;
 
-	private static final Map<Network, SpeedyGraph> BASE_GRAPHS = Collections.synchronizedMap(new WeakHashMap<>());
-	private static final Map<SpeedyGraph, CHGraph> CONTRACTIONS = Collections.synchronizedMap(new WeakHashMap<>());
+	/**
+	 * Per-network caches, shared by all users. The values are held softly: a graph keeps its links, which keep their
+	 * network, and a contraction keeps its graph, so a strongly held value would keep its own weak key alive and the
+	 * entry would never be released. This way they are released under memory pressure once nothing else uses them.
+	 */
+	private static final Map<Network, SoftReference<SpeedyGraph>> BASE_GRAPHS = Collections.synchronizedMap(new WeakHashMap<>());
+	private static final Map<SpeedyGraph, SoftReference<CHGraph>> CONTRACTIONS = Collections.synchronizedMap(new WeakHashMap<>());
 
 	final SpeedyGraph graph;
 	final CHGraph cch;
@@ -97,14 +103,26 @@ public final class CCHPotentials {
 	/** The base graph (spatially ordered) for this network, shared by all CH-Potentials users. */
 	public static SpeedyGraph baseGraph(Network network) {
 		synchronized (BASE_GRAPHS) {
-			return BASE_GRAPHS.computeIfAbsent(network, SpeedyGraphBuilder::buildWithSpatialOrdering);
+			SoftReference<SpeedyGraph> cached = BASE_GRAPHS.get(network);
+			SpeedyGraph graph = cached == null ? null : cached.get();
+			if (graph == null) {
+				graph = SpeedyGraphBuilder.buildWithSpatialOrdering(network);
+				BASE_GRAPHS.put(network, new SoftReference<>(graph));
+			}
+			return graph;
 		}
 	}
 
 	/** The customizable contraction of this graph. It does not depend on costs, so it is computed once. */
 	public static CHGraph contraction(SpeedyGraph graph, TravelDisutility anyDisutility) {
 		synchronized (CONTRACTIONS) {
-			return CONTRACTIONS.computeIfAbsent(graph, g -> contract(g, anyDisutility));
+			SoftReference<CHGraph> cached = CONTRACTIONS.get(graph);
+			CHGraph cch = cached == null ? null : cached.get();
+			if (cch == null) {
+				cch = contract(graph, anyDisutility);
+				CONTRACTIONS.put(graph, new SoftReference<>(cch));
+			}
+			return cch;
 		}
 	}
 
