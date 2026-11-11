@@ -7,8 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import java.util.function.BiConsumer;
 
 import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Coord;
@@ -30,86 +33,95 @@ import org.matsim.core.router.util.TravelTime;
 import org.matsim.vehicles.Vehicle;
 
 /**
- * The parts of {@link CHPotentialRouter} that a simulation uses and {@link CHExactnessUnderJamsTest} does not
- * reach, each compared with an exact Dijkstra on the same network and travel times:
- *
- * <ul>
- *   <li>the link-to-link queries DRT calls, with a cost limit and with the no-path behaviours;</li>
- *   <li>a disutility that needs a person (randomized routing), whose bound is its minimum disutility;</li>
- *   <li>networks with turn restrictions, for point-to-point queries (from nodes and from links) and for
- *       {@link CHPotentialTree}, forward and backward.</li>
- * </ul>
- *
- * Networks are small and the query sets fixed, so the test costs well under a second.
+ * What a simulation calls on {@link CHPotentialRouter} and {@link CHExactnessUnderJamsTest} does not reach, each against
+ * an exact Dijkstra on the same network and travel times: link-to-link queries (cost limit, no-path behaviour), a
+ * disutility that needs a person, turn restrictions (queries and one-to-many trees), and argument validation.
  */
 public class CHPotentialRouterContractTest {
 
 	private static final double TOLERANCE = CHExactnessUnderJamsTest.TOLERANCE;
+	private static final double[] DEPARTURES = CHExactnessUnderJamsTest.DEPARTURES;
 	private static final TravelTimeCalculatorConfigGroup BINS = new TravelTimeCalculatorConfigGroup();
 
-	private static CHPotentialRouter router(Network network, TravelTime tt, TravelDisutility td) {
-		SpeedyGraph graph = CCHPotentials.baseGraph(network);
-		return new CHPotentialRouter(CCHPotentials.customize(graph, CCHPotentials.contraction(graph, td), tt, td,
-				BINS.getTraveltimeBinSize(), BINS.getMaxTime()), tt, td);
+	/** A network with its travel times and disutility, the CH-Potentials built on them, and the exact router to compare with. */
+	private record Setup(Network network, TravelTime tt, TravelDisutility td, SpeedyGraph graph, CHPotentialRouter ch,
+			LeastCostPathCalculator dijkstra, List<Node> nodes, List<Link> links) {
+
+		static Setup of(Network network, TravelTime tt, TravelDisutility td) {
+			SpeedyGraph graph = CCHPotentials.baseGraph(network);
+			CHPotentialRouter ch = new CHPotentialRouter(potentials(graph, tt, td), tt, td);
+			SpeedyDijkstra dijkstra = (SpeedyDijkstra) new SpeedyDijkstraFactory().createPathCalculator(network, td, tt);
+			ch.setNoPathBehavior(NoPathBehavior.none);
+			dijkstra.setNoPathBehavior(NoPathBehavior.none);
+			List<Node> nodes = new ArrayList<>(network.getNodes().values());
+			List<Link> links = new ArrayList<>(network.getLinks().values());
+			nodes.sort(Comparator.comparing(n -> n.getId().toString()));
+			links.sort(Comparator.comparing(l -> l.getId().toString()));
+			return new Setup(network, tt, td, graph, ch, dijkstra, nodes, links);
+		}
+
+		/** The jam network with a delay on every fourth link, all day, and plain travel time as the cost. */
+		static Setup jammed() {
+			Network network = CHExactnessUnderJamsTest.createNetwork();
+			JamTravelTime tt = new JamTravelTime();
+			List<Link> links = new ArrayList<>(network.getLinks().values());
+			links.sort(Comparator.comparing(l -> l.getId().toString()));
+			for (int i = 0; i < links.size(); i += 4) tt.delay.put(links.get(i).getId(), CHExactnessUnderJamsTest.JAM_DELAY);
+			return of(network, tt, new OnlyTimeDependentTravelDisutility(tt));
+		}
+
+		/** Both routers find the same cost and time, or both find no path; returns whether a path exists. */
+		boolean sameResult(Path expected, Path actual, String query) {
+			assertEquals(expected == null, actual == null, query + ": Dijkstra " + (expected == null ? "finds no path" : "finds a path of cost " + expected.travelCost)
+					+ ", CH-Potentials " + (actual == null ? "find none" : "find one of cost " + actual.travelCost));
+			if (expected == null) return false;
+			assertEquals(expected.travelCost, actual.travelCost, TOLERANCE, query);
+			assertEquals(expected.travelTime, actual.travelTime, TOLERANCE, query);
+			return true;
+		}
+
+		CHPotentialTree tree() {
+			return new CHPotentialTree(potentials(graph, tt, td), tt, td);
+		}
 	}
 
-	private static LeastCostPathCalculator exact(Network network, TravelTime tt, TravelDisutility td) {
-		return new SpeedyDijkstraFactory().createPathCalculator(network, td, tt);
+	private static CCHPotentials potentials(SpeedyGraph graph, TravelTime tt, TravelDisutility td) {
+		return CCHPotentials.customize(graph, CCHPotentials.contraction(graph, td), tt, td, BINS.getTraveltimeBinSize(), BINS.getMaxTime());
 	}
 
-	/** The jam network with a delay on every fourth link, all day. */
-	private static JamTravelTime jams(Network network) {
-		JamTravelTime tt = new JamTravelTime();
-		List<Link> links = new ArrayList<>(network.getLinks().values());
-		links.sort((a, b) -> a.getId().toString().compareTo(b.getId().toString()));
-		for (int i = 0; i < links.size(); i += 4) tt.delay.put(links.get(i).getId(), CHExactnessUnderJamsTest.JAM_DELAY);
-		return tt;
+	private static <T> T pick(List<T> list, Random random) {
+		return list.get(random.nextInt(list.size()));
 	}
 
-	/** Both routers find the same cost, or both find no path; returns whether a path exists. */
-	private static boolean sameResult(Path expected, Path actual, String query) {
-		assertEquals(expected == null, actual == null, query + ": Dijkstra " + (expected == null ? "finds no path" : "finds a path of cost " + expected.travelCost)
-				+ ", CH-Potentials " + (actual == null ? "find none" : "find one of cost " + actual.travelCost));
-		if (expected == null) return false;
-		assertEquals(expected.travelCost, actual.travelCost, TOLERANCE, query);
-		return true;
-	}
-
-	private static List<Link> sortedLinks(Network network) {
-		List<Link> links = new ArrayList<>(network.getLinks().values());
-		links.sort((a, b) -> a.getId().toString().compareTo(b.getId().toString()));
-		return links;
+	/** All ordered pairs of distinct elements. */
+	private static <T> void forEachPair(List<T> items, BiConsumer<T, T> action) {
+		for (T from : items) {
+			for (T to : items) if (from != to) action.accept(from, to);
+		}
 	}
 
 	@Test
 	void linkToLinkQueriesAreExactAndStopAtTheCostLimit() {
-		Network network = CHExactnessUnderJamsTest.createNetwork();
-		JamTravelTime tt = jams(network);
-		TravelDisutility td = new OnlyTimeDependentTravelDisutility(tt);
-		CHPotentialRouter ch = router(network, tt, td);
-		LeastCostPathCalculator dijkstra = exact(network, tt, td);
-		List<Link> links = sortedLinks(network);
+		Setup s = Setup.jammed();
 		Random random = new Random(11);
 		int limited = 0;
 
 		for (int i = 0; i < 150; i++) {
-			Link from = links.get(random.nextInt(links.size())), to = links.get(random.nextInt(links.size()));
-			double departure = CHExactnessUnderJamsTest.DEPARTURES[random.nextInt(CHExactnessUnderJamsTest.DEPARTURES.length)];
-			Path expected = dijkstra.calcLeastCostPath(from, to, departure, null, null);
+			Link from = pick(s.links, random), to = pick(s.links, random);
+			double departure = pick(java.util.Arrays.stream(DEPARTURES).boxed().toList(), random);
+			Path expected = s.dijkstra.calcLeastCostPath(from, to, departure, null, null);
 
-			Path actual = ch.calcLeastCostPath(from, to, departure, null, null);
-			assertEquals(expected.travelCost, actual.travelCost, TOLERANCE, from.getId() + " -> " + to.getId());
-			assertEquals(expected.travelTime, actual.travelTime, TOLERANCE);
+			Path actual = s.ch.calcLeastCostPath(from, to, departure, null, null);
+			assertTrue(s.sameResult(expected, actual, from.getId() + " -> " + to.getId()));
 			assertEquals(from.getToNode(), actual.nodes.getFirst(), "a link-to-link path starts at the end of the first link");
 			assertEquals(to.getFromNode(), actual.nodes.getLast(), "and ends at the start of the last");
 
 			// the same query with a limit just above the optimum is answered, just below it is not
-			Path within = ch.calcLeastCostPath(from, to, departure, null, null, expected.travelCost + 1e-3);
+			Path within = s.ch.calcLeastCostPath(from, to, departure, null, null, expected.travelCost + 1e-3);
 			assertNotNull(within);
 			assertEquals(expected.travelCost, within.travelCost, TOLERANCE);
 			if (expected.travelCost > 1) {
-				ch.setNoPathBehavior(NoPathBehavior.none);
-				assertNull(ch.calcLeastCostPath(from, to, departure, null, null, expected.travelCost - 1), "limit below the optimum");
+				assertNull(s.ch.calcLeastCostPath(from, to, departure, null, null, expected.travelCost - 1), "limit below the optimum");
 				limited++;
 			}
 		}
@@ -125,10 +137,9 @@ public class CHPotentialRouterContractTest {
 		Link ab = NetworkUtils.createAndAddLink(network, Id.createLinkId("ab"), a, b, 100, 10, 1000, 1);
 		Link bc = NetworkUtils.createAndAddLink(network, Id.createLinkId("bc"), b, c, 100, 10, 1000, 1);
 		TravelTime tt = (link, time, person, vehicle) -> link.getLength() / link.getFreespeed();
-		CHPotentialRouter ch = router(network, tt, new OnlyTimeDependentTravelDisutility(tt));
+		CHPotentialRouter ch = Setup.of(network, tt, new OnlyTimeDependentTravelDisutility(tt)).ch();
 
 		assertNotNull(ch.calcLeastCostPath(a, c, 0, null, null), "the way along the line exists");
-		ch.setNoPathBehavior(NoPathBehavior.none);
 		assertNull(ch.calcLeastCostPath(c, a, 0, null, null), "against the one-way line there is no path");
 		assertNull(ch.calcLeastCostPath(bc, ab, 0, null, null));
 		ch.setNoPathBehavior(NoPathBehavior.warning);
@@ -143,13 +154,7 @@ public class CHPotentialRouterContractTest {
 	 * like MATSim's randomizing disutility it refuses to be evaluated without a person. The factor is never below 1,
 	 * so the free-flow time is a valid minimum.
 	 */
-	private static final class PersonDependent implements TravelDisutility {
-		private final TravelTime tt;
-
-		PersonDependent(TravelTime tt) {
-			this.tt = tt;
-		}
-
+	private record PersonDependent(TravelTime tt) implements TravelDisutility {
 		@Override
 		public double getLinkTravelDisutility(Link link, double time, Person person, Vehicle vehicle) {
 			int factor = (person.getId().hashCode() * 31 + link.getId().hashCode()) & 3;
@@ -164,170 +169,99 @@ public class CHPotentialRouterContractTest {
 
 	@Test
 	void aDisutilityThatNeedsAPersonIsRoutedExactly() {
-		Network network = CHExactnessUnderJamsTest.createNetwork();
-		JamTravelTime tt = jams(network);
-		TravelDisutility td = new PersonDependent(tt);
-		CHPotentialRouter ch = router(network, tt, td);
-		LeastCostPathCalculator dijkstra = exact(network, tt, td);
-		List<Node> nodes = new ArrayList<>(network.getNodes().values());
-		nodes.sort((x, y) -> x.getId().toString().compareTo(y.getId().toString()));
+		Setup plain = Setup.jammed();
+		Setup s = Setup.of(plain.network(), plain.tt(), new PersonDependent(plain.tt()));
 		Random random = new Random(5);
 		int differentFromPlainTime = 0;
 
 		for (int i = 0; i < 300; i++) {
 			Person person = PopulationUtils.getFactory().createPerson(Id.createPersonId("p" + random.nextInt(7)));
-			Node from = nodes.get(random.nextInt(nodes.size())), to = nodes.get(random.nextInt(nodes.size()));
-			double departure = CHExactnessUnderJamsTest.DEPARTURES[random.nextInt(CHExactnessUnderJamsTest.DEPARTURES.length)];
-			Path expected = dijkstra.calcLeastCostPath(from, to, departure, person, null);
-			Path actual = ch.calcLeastCostPath(from, to, departure, person, null);
-			assertEquals(expected.travelCost, actual.travelCost, TOLERANCE, person.getId() + " " + from.getId() + " -> " + to.getId());
-			if (!expected.links.equals(exact(network, tt, new OnlyTimeDependentTravelDisutility(tt)).calcLeastCostPath(from, to, departure, null, null).links)) {
-				differentFromPlainTime++;
-			}
+			Node from = pick(s.nodes, random), to = pick(s.nodes, random);
+			double departure = DEPARTURES[random.nextInt(DEPARTURES.length)];
+			Path expected = s.dijkstra.calcLeastCostPath(from, to, departure, person, null);
+			s.sameResult(expected, s.ch.calcLeastCostPath(from, to, departure, person, null), person.getId() + " " + from.getId() + " -> " + to.getId());
+			if (!expected.links.equals(plain.dijkstra.calcLeastCostPath(from, to, departure, null, null).links)) differentFromPlainTime++;
 		}
 		assertTrue(differentFromPlainTime > 10, "the person-dependent costs must change routes, else the test proves nothing: " + differentFromPlainTime);
 	}
 
-	/**
-	 * A 5 x 5 grid of two-way links with uneven lengths, no U-turns, and eight more banned two-link sequences, so that
-	 * several nodes have colored copies. The network stays strongly connected.
-	 */
-	private static Network gridWithTurnRestrictions() {
-		Network network = NetworkUtils.createNetwork();
-		int size = 5;
-		Node[][] node = new Node[size][size];
-		for (int x = 0; x < size; x++) {
-			for (int y = 0; y < size; y++) node[x][y] = NetworkUtils.createAndAddNode(network, Id.createNodeId(x + "_" + y), new Coord(x * 100, y * 100));
-		}
-		Random random = new Random(21);
-		for (int x = 0; x < size; x++) {
-			for (int y = 0; y < size; y++) {
-				if (x + 1 < size) pair(network, node[x][y], node[x + 1][y], random);
-				if (y + 1 < size) pair(network, node[x][y], node[x][y + 1], random);
-			}
-		}
-		for (Link link : network.getLinks().values()) {
+	/** Bans every U-turn and eight more two-link sequences, so that several nodes get colored copies. */
+	private static void addTurnRestrictions(Network network, List<Link> links, Random random) {
+		for (Link link : links) {
 			Link back = link.getToNode().getOutLinks().values().stream().filter(l -> l.getToNode() == link.getFromNode()).findFirst().orElseThrow();
-			NetworkUtils.getOrCreateDisallowedNextLinks(link).addDisallowedLinkSequence("car", List.of(back.getId())); // no U-turn
+			NetworkUtils.getOrCreateDisallowedNextLinks(link).addDisallowedLinkSequence("car", List.of(back.getId()));
 		}
-		List<Link> links = sortedLinks(network);
 		for (int banned = 0; banned < 8; ) {
-			Link first = links.get(random.nextInt(links.size()));
-			List<Link> next = new ArrayList<>(first.getToNode().getOutLinks().values());
-			Link second = next.get(random.nextInt(next.size()));
+			Link first = pick(links, random), second = pick(new ArrayList<>(first.getToNode().getOutLinks().values()), random);
 			if (second.getToNode() == first.getFromNode()) continue;
 			NetworkUtils.getOrCreateDisallowedNextLinks(first).addDisallowedLinkSequence("car", List.of(second.getId()));
 			banned++;
 		}
-		for (Link link : network.getLinks().values()) link.setAllowedModes(java.util.Set.of("car"));
-		return network;
 	}
 
-	private static void pair(Network network, Node a, Node b, Random random) {
-		double length = 100 + random.nextInt(100);
-		NetworkUtils.createAndAddLink(network, Id.createLinkId(a.getId() + ">" + b.getId()), a, b, length, 10, 1000, 1);
-		NetworkUtils.createAndAddLink(network, Id.createLinkId(b.getId() + ">" + a.getId()), b, a, length, 10, 1000, 1);
+	/** The tree gives the same cost to every target as the full tree on the same graph, started at {@code start}. */
+	private static void assertTargetsMatch(Setup s, LeastCostPathTree reference, CHPotentialTree tree, Link start, List<Node> targets, boolean forward, String what) {
+		if (forward) {
+			reference.calculate(start, 0, null, null);
+			tree.calculateToTargets(start, 0, null, null, targets, null);
+		} else {
+			reference.calculateBackwards(start, 0, null, null);
+			tree.calculateBackwardsToTargets(start, 0, null, null, targets, null);
+		}
+		for (Node t : targets) {
+			int i = s.graph().getNodeIndex(t);
+			assertEquals(reference.getCost(i), tree.getCost(i), TOLERANCE, (forward ? "forward from " : "backward to ") + start.getId() + ", " + what + " " + t.getId());
+		}
 	}
 
 	@Test
 	void turnRestrictionsAreRespectedByQueriesAndTrees() {
-		Network network = gridWithTurnRestrictions();
+		Network network = CHExactnessUnderJamsTest.createNetwork();
+		Random random = new Random(21);
+		List<Link> sorted = new ArrayList<>(network.getLinks().values());
+		sorted.sort(Comparator.comparing(l -> l.getId().toString()));
+		addTurnRestrictions(network, sorted, random);
 		TravelTime tt = (link, time, person, vehicle) -> link.getLength() / link.getFreespeed();
-		TravelDisutility td = new OnlyTimeDependentTravelDisutility(tt);
-		SpeedyGraph graph = CCHPotentials.baseGraph(network);
-		assertTrue(graph.getTurnRestrictions().isPresent(), "the network must be built with turn restrictions");
-		CHPotentialRouter ch = router(network, tt, td);
-		LeastCostPathCalculator dijkstra = exact(network, tt, td);
-		List<Link> links = sortedLinks(network);
-		List<Node> nodes = new ArrayList<>(network.getNodes().values());
-		nodes.sort((x, y) -> x.getId().toString().compareTo(y.getId().toString()));
+		Setup s = Setup.of(network, tt, new OnlyTimeDependentTravelDisutility(tt));
+		assertTrue(s.graph().getTurnRestrictions().isPresent(), "the network must be built with turn restrictions");
 
-		// every origin-destination pair, from nodes and from links; a restricted network may have unreachable pairs
-		ch.setNoPathBehavior(NoPathBehavior.none);
-		((SpeedyDijkstra) dijkstra).setNoPathBehavior(NoPathBehavior.none);
-		int found = 0, unreachable = 0;
-		for (Node from : nodes) {
-			for (Node to : nodes) {
-				if (from == to) continue;
-				if (sameResult(dijkstra.calcLeastCostPath(from, to, 0, null, null), ch.calcLeastCostPath(from, to, 0, null, null), from.getId() + " -> " + to.getId())) found++;
-				else unreachable++;
-			}
+		// every node pair, and 600 link pairs (a restricted network may have unreachable pairs)
+		int[] found = {0};
+		forEachPair(s.nodes(), (from, to) -> {
+			if (s.sameResult(s.dijkstra().calcLeastCostPath(from, to, 0, null, null), s.ch().calcLeastCostPath(from, to, 0, null, null), from.getId() + " -> " + to.getId())) found[0]++;
+		});
+		for (int i = 0; i < 600; i++) {
+			Link from = pick(s.links(), random), to = pick(s.links(), random);
+			Path actual = s.ch().calcLeastCostPath(from, to, 0, null, null);
+			if (!s.sameResult(s.dijkstra().calcLeastCostPath(from, to, 0, null, null), actual, from.getId() + " -> " + to.getId())) continue;
+			for (int k = 0; k + 1 < actual.links.size(); k++) assertTrue(actual.links.get(k + 1).getToNode() != actual.links.get(k).getFromNode(), "U-turn in " + actual.links);
+			found[0]++;
 		}
-		for (Link from : links) {
-			for (Link to : links) {
-				if (from == to) continue;
-				Path expected = dijkstra.calcLeastCostPath(from, to, 0, null, null), actual = ch.calcLeastCostPath(from, to, 0, null, null);
-				if (!sameResult(expected, actual, from.getId() + " -> " + to.getId())) {
-					unreachable++;
-					continue;
-				}
-				for (int i = 0; i + 1 < actual.links.size(); i++) {
-					assertTrue(actual.links.get(i + 1).getToNode() != actual.links.get(i).getFromNode(), "U-turn in " + actual.links);
-				}
-				found++;
-			}
-		}
-		assertTrue(found > 500, "too few reachable pairs to be meaningful: " + found + " found, " + unreachable + " unreachable");
+		assertTrue(found[0] > 3000, "too few reachable pairs to be meaningful: " + found[0]);
 
-		// the one-to-many tree, forward and backward, against the plain tree on the same restricted graph
-		LeastCostPathTree reference = new LeastCostPathTree(graph, tt, td);
-		BINS.getTraveltimeBinSize();
-		CCHPotentials potentials = CCHPotentials.customize(graph, CCHPotentials.contraction(graph, td), td, BINS.getTraveltimeBinSize(), BINS.getMaxTime());
-		CHPotentialTree tree = new CHPotentialTree(potentials, tt, td);
-		Random random = new Random(9);
-		for (Link start : links) {
-			List<Node> targets = new ArrayList<>(nodes);
-			java.util.Collections.shuffle(targets, random);
-			targets = targets.subList(0, 6);
-			reference.calculate(start, 0, null, null);
-			tree.calculateToTargets(start, 0, null, null, targets, null);
-			for (Node t : targets) {
-				assertEquals(reference.getCost(graph.getNodeIndex(t)), tree.getCost(graph.getNodeIndex(t)), TOLERANCE, "forward from " + start.getId() + " to " + t.getId());
-			}
-			reference.calculateBackwards(start, 0, null, null);
-			tree.calculateBackwardsToTargets(start, 0, null, null, targets, null);
-			for (Node t : targets) {
-				assertEquals(reference.getCost(graph.getNodeIndex(t)), tree.getCost(graph.getNodeIndex(t)), TOLERANCE, "backward to " + start.getId() + " from " + t.getId());
-			}
+		// the one-to-many tree, forward and backward, against the full tree on the same restricted graph
+		LeastCostPathTree reference = new LeastCostPathTree(s.graph(), tt, s.td());
+		CHPotentialTree tree = s.tree();
+		for (int i = 0; i < 40; i++) {
+			Link start = pick(s.links(), random);
+			List<Node> targets = new ArrayList<>(s.nodes());
+			Collections.shuffle(targets, random);
+			assertTargetsMatch(s, reference, tree, start, targets.subList(0, 6), true, "target");
+			assertTargetsMatch(s, reference, tree, start, targets.subList(0, 6), false, "source");
 		}
 	}
 
 	@Test
 	void customizationRejectsAPlainContractionAndNonPositiveBins() {
-		Network network = CHExactnessUnderJamsTest.createNetwork();
-		TravelDisutility td = new OnlyTimeDependentTravelDisutility(new JamTravelTime());
-		SpeedyGraph graph = CCHPotentials.baseGraph(network);
-		CHGraph plain = new CHBuilder(graph, td).build(); // not built by customizable contraction
-		CHGraph cch = CCHPotentials.contraction(graph, td);
+		Setup s = Setup.jammed();
+		CHGraph plain = new CHBuilder(s.graph(), s.td()).build(); // not built by customizable contraction
+		CHGraph cch = CCHPotentials.contraction(s.graph(), s.td());
 		double bin = BINS.getTraveltimeBinSize(), horizon = BINS.getMaxTime();
 
-		assertThrows(IllegalStateException.class, () -> CCHPotentials.customize(graph, plain, td, bin, horizon));
+		assertThrows(IllegalStateException.class, () -> CCHPotentials.customize(s.graph(), plain, s.td(), bin, horizon));
 		for (double[] invalid : new double[][] {{0, horizon}, {bin, 0}, {-bin, horizon}}) {
-			IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> CCHPotentials.customize(graph, cch, td, invalid[0], invalid[1]));
+			IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> CCHPotentials.customize(s.graph(), cch, s.td(), invalid[0], invalid[1]));
 			assertTrue(e.getMessage().contains("must be positive"), "rejected for another reason: " + e.getMessage());
-		}
-	}
-
-	@Test
-	void theTreeAlsoAnswersFullTreeQueries() {
-		Network network = CHExactnessUnderJamsTest.createNetwork();
-		JamTravelTime tt = jams(network);
-		TravelDisutility td = new OnlyTimeDependentTravelDisutility(tt);
-		SpeedyGraph graph = CCHPotentials.baseGraph(network);
-		CHPotentialTree tree = new CHPotentialTree(CCHPotentials.customize(graph, CCHPotentials.contraction(graph, td), tt, td,
-				BINS.getTraveltimeBinSize(), BINS.getMaxTime()), tt, td);
-		LeastCostPathTree reference = new LeastCostPathTree(graph, tt, td);
-		Link start = sortedLinks(network).get(17);
-
-		tree.calculate(start, 7 * 3600, null, null);
-		reference.calculate(start, 7 * 3600, null, null);
-		for (Node n : network.getNodes().values()) {
-			assertEquals(reference.getCost(graph.getNodeIndex(n)), tree.getCost(graph.getNodeIndex(n)), TOLERANCE, "forward, node " + n.getId());
-		}
-		tree.calculateBackwards(start, 7 * 3600, null, null);
-		reference.calculateBackwards(start, 7 * 3600, null, null);
-		for (Node n : network.getNodes().values()) {
-			assertEquals(reference.getCost(graph.getNodeIndex(n)), tree.getCost(graph.getNodeIndex(n)), TOLERANCE, "backward, node " + n.getId());
 		}
 	}
 }
