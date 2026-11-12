@@ -19,6 +19,7 @@
  * *********************************************************************** */
 package org.matsim.core.router.speedy;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
@@ -46,6 +47,7 @@ public final class CHPotentialTree implements ShortestPathTree {
 
 	private final CCHPotentialSearch search;
 	private final LeastCostPathTree plain;
+	private final CCHPotentials potentials;
 	private final SpeedyGraph graph;
 	private int[] targets = new int[16];
 	private final int[] start = new int[1];
@@ -54,6 +56,7 @@ public final class CHPotentialTree implements ShortestPathTree {
 	public CHPotentialTree(CCHPotentials potentials, TravelTime tt, TravelDisutility td) {
 		this.search = new CCHPotentialSearch(potentials, tt, td);
 		this.plain = new LeastCostPathTree(potentials.graph, tt, td);
+		this.potentials = potentials;
 		this.graph = potentials.graph;
 	}
 
@@ -85,12 +88,7 @@ public final class CHPotentialTree implements ShortestPathTree {
 	@Override
 	public void calculateToTargets(Link startLink, double startTime, Person person, Vehicle vehicle, Collection<Node> targetNodes,
 			LeastCostPathTree.StopCriterion allReached) {
-		int s = graph.getNodeIndex(startLink.getToNode());
-		if (graph.getTurnRestrictions().isPresent()) {
-			TurnRestrictionsContext.ColoredLink replaced = graph.getTurnRestrictions().get().replacedLinks.get(startLink.getId());
-			if (replaced != null) s = graph.getInternalIndex(replaced.toColoredNode.index());
-		}
-		start[0] = s;
+		start[0] = potentials.startNode(startLink);
 		run(start, startTime, true, targetNodes, person, vehicle);
 	}
 
@@ -114,7 +112,7 @@ public final class CHPotentialTree implements ShortestPathTree {
 		int arrivalNode = graph.getNodeIndex(arrivalLink.getFromNode());
 		if (graph.getTurnRestrictions().isEmpty()) return new int[] {arrivalNode};
 		TurnRestrictionsContext context = graph.getTurnRestrictions().get();
-		java.util.List<Integer> starts = new java.util.ArrayList<>(List.of(arrivalNode));
+		List<Integer> starts = new ArrayList<>(List.of(arrivalNode));
 		for (Link inLink : arrivalLink.getFromNode().getInLinks().values()) {
 			TurnRestrictionsContext.ColoredLink replaced = context.replacedLinks.get(inLink.getId());
 			if (replaced != null && replaced.toColoredNode != null) starts.add(graph.getInternalIndex(replaced.toColoredNode.index()));

@@ -30,6 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Network;
+import org.matsim.core.network.turnRestrictions.TurnRestrictionsContext;
 import org.matsim.core.router.util.TravelDisutility;
 import org.matsim.core.router.util.TravelTime;
 
@@ -114,6 +115,15 @@ public final class CCHPotentials {
 	}
 
 	/** The customizable contraction of this graph. It does not depend on costs, so it is computed once. */
+	/** The node a search leaving {@code fromLink} starts at: its end node, or with turn restrictions the colored copy for that link. */
+	int startNode(Link fromLink) {
+		if (graph.getTurnRestrictions().isPresent()) {
+			TurnRestrictionsContext.ColoredLink replaced = graph.getTurnRestrictions().get().replacedLinks.get(fromLink.getId());
+			if (replaced != null) return graph.getInternalIndex(replaced.toColoredNode.index());
+		}
+		return graph.getNodeIndex(fromLink.getToNode());
+	}
+
 	public static CHGraph contraction(SpeedyGraph graph, TravelDisutility anyDisutility) {
 		synchronized (CONTRACTIONS) {
 			SoftReference<CHGraph> cached = CONTRACTIONS.get(graph);
