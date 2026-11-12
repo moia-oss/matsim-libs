@@ -35,7 +35,7 @@ import org.matsim.core.router.util.TravelTime;
 
 /**
  * Factory for the exact CH router ({@link CHPotentialRouter}): A* with CH-Potentials on a customizable contraction
- * hierarchy, returning the same costs as {@link SpeedyDijkstra}.
+ * hierarchy, returning the same costs as {@link SpeedyDijkstra}. See {@link CCHPotentials} for the references.
  *
  * <ol>
  *   <li>The customizable contraction is computed once per network ({@link CCHPotentials#contraction}); it does not
