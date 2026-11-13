@@ -62,7 +62,6 @@ import org.matsim.core.controler.OutputDirectoryHierarchy;
 import org.matsim.core.modal.ModalProviders;
 import org.matsim.core.router.RoutingModule;
 import org.matsim.core.router.costcalculators.TravelDisutilityFactory;
-import org.matsim.core.router.speedy.SpeedyALTFactory;
 import org.matsim.core.router.util.LeastCostPathCalculatorFactory;
 import org.matsim.core.router.util.TravelTime;
 import org.matsim.core.scenario.ScenarioUtils;
@@ -235,14 +234,15 @@ public class DrtModeRoutingModule extends AbstractDvrpModeModule {
 	}
 
 	private static class DrtRouteCreatorProvider extends ModalProviders.AbstractProvider<DvrpMode, DrtRouteCreator> {
-		private final LeastCostPathCalculatorFactory leastCostPathCalculatorFactory;
+		/** The configured routing algorithm's factory. */
+		@Inject
+		private LeastCostPathCalculatorFactory leastCostPathCalculatorFactory;
 
 		private final DrtConfigGroup drtCfg;
 
 		private DrtRouteCreatorProvider(DrtConfigGroup drtCfg) {
 			super(drtCfg.getMode(), DvrpModes::mode);
 			this.drtCfg = drtCfg;
-			leastCostPathCalculatorFactory = new SpeedyALTFactory();
 		}
 
 		@Override
