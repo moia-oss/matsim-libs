@@ -87,11 +87,9 @@ public class CHRouterFactoryRecustomizationTest {
 	 */
 	@Test
 	void linkThatGotFasterIsUsedAfterIterationStart() {
-		Network network = createGrid();
+		Network network = createGridWithBypass();
 		Node from = network.getNodes().get(Id.createNodeId("n0_0"));
 		Node to = network.getNodes().get(Id.createNodeId("n3_0"));
-		Link bypass = NetworkUtils.createAndAddLink(network, Id.createLinkId("bypass"), from, to, 350.0, 10.0, 1800.0, 1.0);
-		bypass.setAllowedModes(java.util.Set.of("car"));
 		MutableTravelTime tt = new MutableTravelTime();
 		TravelDisutility td = new OnlyTimeDependentTravelDisutility(tt);
 		CHRouterFactory factory = new CHRouterFactory();
@@ -104,6 +102,53 @@ public class CHRouterFactoryRecustomizationTest {
 		tt.extra.remove(jammed);
 		factory.notifyIterationStarts(null); // iteration 1
 		assertEquals(30.0, factory.createPathCalculator(network, td, tt).calcLeastCostPath(from, to, 0.0, null, null).travelTime, 1e-9);
+	}
+
+	/**
+	 * Two travel times of one class with different values (as two DRT modes with different speed caps, wrapped by the
+	 * same lambda) must not share costs: the one without the jam takes the grid route (30 s), not the bypass (35 s).
+	 */
+	@Test
+	void travelTimesOfOneClassWithDifferentValuesGetTheirOwnCosts() {
+		Network network = createGridWithBypass();
+		Node from = network.getNodes().get(Id.createNodeId("n0_0"));
+		Node to = network.getNodes().get(Id.createNodeId("n3_0"));
+		MutableTravelTime jammed = new MutableTravelTime();
+		jammed.extra.put(Id.createLinkId("n1_0->n2_0"), JAM_TIME);
+		MutableTravelTime free = new MutableTravelTime();
+		CHRouterFactory factory = new CHRouterFactory();
+		factory.notifyIterationStarts(null);
+
+		double jammedTime = factory.createPathCalculator(network, new OnlyTimeDependentTravelDisutility(jammed), jammed)
+				.calcLeastCostPath(from, to, 0.0, null, null).travelTime;
+		double freeTime = factory.createPathCalculator(network, new OnlyTimeDependentTravelDisutility(free), free)
+				.calcLeastCostPath(from, to, 0.0, null, null).travelTime;
+
+		assertEquals(35.0, jammedTime, 1e-9);
+		assertEquals(30.0, freeTime, 1e-9);
+		assertEquals(2, factory.distinctCustomizations());
+	}
+
+	/** New travel time objects with the same values (as MATSim's per-injection wrappers) share one customization. */
+	@Test
+	void travelTimesWithEqualValuesShareOneCustomization() {
+		Network network = createGrid();
+		CHRouterFactory factory = new CHRouterFactory();
+		factory.notifyIterationStarts(null);
+		for (int i = 0; i < 3; i++) {
+			MutableTravelTime tt = new MutableTravelTime();
+			factory.createPathCalculator(network, new OnlyTimeDependentTravelDisutility(tt), tt);
+		}
+		assertEquals(1, factory.distinctCustomizations());
+	}
+
+	/** The grid plus a bypass n0_0 -> n3_0 of 35 s, against 30 s over the three grid links. */
+	private static Network createGridWithBypass() {
+		Network network = createGrid();
+		Link bypass = NetworkUtils.createAndAddLink(network, Id.createLinkId("bypass"), network.getNodes().get(Id.createNodeId("n0_0")),
+				network.getNodes().get(Id.createNodeId("n3_0")), 350.0, 10.0, 1800.0, 1.0);
+		bypass.setAllowedModes(java.util.Set.of("car"));
+		return network;
 	}
 
 	/**

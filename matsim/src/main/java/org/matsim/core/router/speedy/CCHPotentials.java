@@ -81,8 +81,12 @@ public final class CCHPotentials {
 	final int[][] copies;
 	/** Per-bin link costs for the search to read directly; null when the costs cannot be sampled (person-dependent). */
 	final FlatCosts flat;
+	/** The values these potentials were customized from, to recognize equal ones ({@link #customizedFrom}). */
+	private final Samples samples;
 
-	private CCHPotentials(SpeedyGraph graph, CHGraph cch, double binSize, int bins, int window, float[][] windows, float[] allDay, FlatCosts flat) {
+	private CCHPotentials(SpeedyGraph graph, CHGraph cch, double binSize, int bins, int window, float[][] windows, float[] allDay, FlatCosts flat,
+			Samples samples) {
+		this.samples = samples;
 		this.graph = graph;
 		this.cch = cch;
 		this.binSize = binSize;
@@ -138,20 +142,63 @@ public final class CCHPotentials {
 	 * ({@link FlatCosts}). Pass the same travel time and disutility the searches will use.
 	 */
 	public static CCHPotentials customize(SpeedyGraph graph, CHGraph cch, TravelTime tt, TravelDisutility td, double binSize, double horizon) {
-		if (!cch.isCustomizable()) {
-			throw new IllegalStateException("CH-Potentials need a customizable contraction (CHBuilder#withCustomizableContraction)");
+		return customize(cch, sample(graph, tt, td, binSize, horizon));
+	}
+
+	/**
+	 * What a customization reads from the travel time and disutility. Equal samples give equal potentials, which lets
+	 * {@link CHRouterFactory} share one customization between travel time objects that report the same values.
+	 */
+	static final class Samples {
+		final SpeedyGraph graph;
+		final double binSize;
+		final int bins;
+		/** True for person-dependent costs: {@link #bounds} then holds one row, the minimum disutility. */
+		final boolean timeIndependent;
+		/**
+		 * bounds[j][link]: disutility of entering the link at the start of bin j (j = bins is the horizon), rounded down;
+		 * or bounds[0][link], the minimum disutility. Null once customized when {@link #flat} holds the same values.
+		 */
+		final float[][] bounds;
+		/** Exact per-bin costs; null without a travel time, or for person-dependent costs. */
+		final FlatCosts flat;
+
+		private Samples(SpeedyGraph graph, double binSize, int bins, boolean timeIndependent, float[][] bounds, FlatCosts flat) {
+			this.graph = graph;
+			this.binSize = binSize;
+			this.bins = bins;
+			this.timeIndependent = timeIndependent;
+			this.bounds = bounds;
+			this.flat = flat;
 		}
+
+		/** Whether both were sampled from the same values, so their customizations are equal. */
+		boolean sameValues(Samples other) {
+			if (graph != other.graph || binSize != other.binSize || bins != other.bins || timeIndependent != other.timeIndependent) {
+				return false;
+			}
+			if (flat != null || other.flat != null) {
+				// the bounds are the costs rounded down, so equal costs give equal bounds
+				return flat != null && other.flat != null && flat.sameValues(other.flat);
+			}
+			return java.util.Arrays.deepEquals(bounds, other.bounds);
+		}
+
+		/** The samples to keep for {@link #sameValues}: the bounds are redundant next to the exact costs. */
+		private Samples kept() {
+			return flat == null ? this : new Samples(graph, binSize, bins, timeIndependent, null, flat);
+		}
+	}
+
+	/**
+	 * Samples the disutility (and, with a travel time, the exact per-bin costs) for {@link #customize(CHGraph, Samples)}.
+	 * Pass the same travel time and disutility the searches will use.
+	 */
+	static Samples sample(SpeedyGraph graph, TravelTime tt, TravelDisutility td, double binSize, double horizon) {
 		if (!(binSize > 0) || !(horizon > 0)) {
 			throw new IllegalArgumentException("bin size and horizon must be positive, got " + binSize + " and " + horizon);
 		}
-		long start = System.nanoTime();
 		int bins = (int) Math.ceil(horizon / binSize);
-		int window = Math.max(1, (int) Math.round(WINDOW_SECONDS / binSize));
-		int edges = cch.totalEdgeCount;
-
-		float[][] windows = new float[bins][];
-		float[] allDay;
-		FlatCosts flat = null;
 		if (needsPerson(graph, td)) {
 			// Person-dependent costs (e.g. randomized routing) have no valid per-time sample without a person; their
 			// time-independent minimum is the bound by contract, as for SpeedyALT's landmarks.
@@ -161,35 +208,53 @@ public final class CCHPotentials {
 				Link link = graph.getLink(l);
 				if (link != null) minimum[0][l] = down(td.getLinkMinimumTravelDisutility(link));
 			}
-			allDay = metric(cch, minimum, 0, 0);
+			return new Samples(graph, binSize, bins, true, minimum, null);
+		}
+		float[][] bounds = new float[bins + 1][graph.linkCount];
+		FlatCosts flat = tt == null ? null : new FlatCosts(graph.linkCount, binSize, bins);
+		IntStream.range(0, graph.linkCount).parallel().forEach(l -> {
+			Link link = graph.getLink(l);
+			if (link == null) return;
+			double[] times = flat == null ? null : new double[bins + 1];
+			double[] costs = flat == null ? null : new double[bins + 1];
+			for (int j = 0; j <= bins; j++) {
+				double cost = td.getLinkTravelDisutility(link, j * binSize, null, null);
+				bounds[j][l] = down(cost);
+				if (flat != null) {
+					costs[j] = cost;
+					times[j] = tt.getLinkTravelTime(link, j * binSize, null, null);
+				}
+			}
+			if (flat != null) flat.set(l, times, costs);
+		});
+		return new Samples(graph, binSize, bins, false, bounds, flat);
+	}
+
+	/** Lower bounds from the given samples, per departure window and all day. */
+	static CCHPotentials customize(CHGraph cch, Samples samples) {
+		if (!cch.isCustomizable()) {
+			throw new IllegalStateException("CH-Potentials need a customizable contraction (CHBuilder#withCustomizableContraction)");
+		}
+		long start = System.nanoTime();
+		int bins = samples.bins;
+		int window = Math.max(1, (int) Math.round(WINDOW_SECONDS / samples.binSize));
+		float[][] windows = new float[bins][];
+		float[] allDay;
+		if (samples.timeIndependent) {
+			allDay = metric(cch, samples.bounds, 0, 0);
 			java.util.Arrays.fill(windows, allDay);
 		} else {
-			// samples[j][link]: disutility of entering the link at the start of bin j (j = bins is the horizon)
-			float[][] samples = new float[bins + 1][graph.linkCount];
-			if (tt != null) flat = new FlatCosts(graph.linkCount, binSize, bins);
-			FlatCosts sampled = flat;
-			IntStream.range(0, graph.linkCount).parallel().forEach(l -> {
-				Link link = graph.getLink(l);
-				if (link == null) return;
-				double[] times = sampled == null ? null : new double[bins + 1];
-				double[] costs = sampled == null ? null : new double[bins + 1];
-				for (int j = 0; j <= bins; j++) {
-					double cost = td.getLinkTravelDisutility(link, j * binSize, null, null);
-					samples[j][l] = down(cost);
-					if (sampled != null) {
-						costs[j] = cost;
-						times[j] = tt.getLinkTravelTime(link, j * binSize, null, null);
-					}
-				}
-				if (sampled != null) sampled.set(l, times, costs);
-			});
-			IntStream.range(0, bins).parallel().forEach(k -> windows[k] = metric(cch, samples, k, Math.min(bins, k + window - 1)));
-			allDay = metric(cch, samples, 0, bins);
+			IntStream.range(0, bins).parallel().forEach(k -> windows[k] = metric(cch, samples.bounds, k, Math.min(bins, k + window - 1)));
+			allDay = metric(cch, samples.bounds, 0, bins);
 		}
-
 		LOG.info("[CCH] potentials: {} windows of {} bins ({} s each) up to {} h, {} edges, {} s", bins, window,
-				binSize, horizon / 3600, edges, secs(System.nanoTime() - start));
-		return new CCHPotentials(graph, cch, binSize, bins, window, windows, allDay, flat);
+				samples.binSize, bins * samples.binSize / 3600, cch.totalEdgeCount, secs(System.nanoTime() - start));
+		return new CCHPotentials(samples.graph, cch, samples.binSize, bins, window, windows, allDay, samples.flat, samples.kept());
+	}
+
+	/** Whether these potentials were customized from the same values as {@code samples}. */
+	boolean customizedFrom(Samples samples) {
+		return this.samples.sameValues(samples);
 	}
 
 	/** Lower-bound metric over samples [first, last] (inclusive): real edges from the samples, shortcuts bottom-up. */

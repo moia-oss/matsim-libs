@@ -73,6 +73,13 @@ final class FlatCosts {
 		return time <= 0 ? 0 : (int) Math.min(bins, time / binSize);
 	}
 
+	/** Whether both hold the same values for every link and bin. */
+	boolean sameValues(FlatCosts other) {
+		return binSize == other.binSize && bins == other.bins
+				&& java.util.Arrays.equals(ttFirst, other.ttFirst) && java.util.Arrays.equals(costFirst, other.costFirst)
+				&& java.util.Arrays.deepEquals(ttVar, other.ttVar) && java.util.Arrays.deepEquals(costVar, other.costVar);
+	}
+
 	private static boolean constant(double[] v) {
 		for (int i = 1; i < v.length; i++) {
 			if (v[i] != v[0]) return false;
