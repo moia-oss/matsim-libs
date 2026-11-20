@@ -4,6 +4,7 @@ import org.matsim.smallScaleCommercialTrafficGeneration.GenerateSmallScaleCommer
 
 /**
  * Strategy to determine vehicle types and occupancy rates for an OD matrix entry.
+ * This should be public because it can be used in other scenarios outside this package.
  */
 public interface VehicleTypeSelection {
 

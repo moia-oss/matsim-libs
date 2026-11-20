@@ -12,7 +12,7 @@
 	<name>vsp</name>
 
 	<properties>
-		<javafx.version>26.0.2</javafx.version>
+		<javafx.version>27</javafx.version>
 	</properties>
 
 	<repositories>
@@ -191,7 +191,7 @@
 		<dependency>
 			<groupId>com.graphhopper</groupId>
 			<artifactId>graphhopper-core</artifactId>
-			<version>11.0</version>
+			<version>11.1</version>
 		</dependency>
 		<!-- Enforce version -->
 		<dependency>
@@ -206,6 +206,11 @@
 			<scope>test</scope>
 		</dependency>
 		<!-- Used undeclared dependencies -->
+		<dependency>
+			<groupId>org.matsim.contrib</groupId>
+			<artifactId>simwrapper</artifactId>
+			<version>${project.parent.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.apache.commons</groupId>
 			<artifactId>commons-math</artifactId>
@@ -239,6 +244,7 @@
 		<dependency>
 			<groupId>com.google.inject</groupId>
 			<artifactId>guice</artifactId>
+			<classifier>classes</classifier>
 		</dependency>
 		<dependency>
 			<groupId>cadyts</groupId>
@@ -289,7 +295,7 @@
 		<dependency>
 			<groupId>com.graphhopper</groupId>
 			<artifactId>graphhopper-web-api</artifactId>
-			<version>11.0</version>
+			<version>11.1</version>
 		</dependency>
 		<dependency>
 			<groupId>org.locationtech.jts</groupId>

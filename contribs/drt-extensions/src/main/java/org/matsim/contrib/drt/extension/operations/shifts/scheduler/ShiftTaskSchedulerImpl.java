@@ -16,7 +16,7 @@ import org.matsim.contrib.drt.extension.operations.shifts.optimizer.ShiftBreakSt
 import org.matsim.contrib.drt.extension.operations.shifts.optimizer.ShiftChangeoverStopWaypoint;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftBreakTask;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftChangeOverTask;
-import org.matsim.contrib.drt.extension.operations.shifts.schedule.ShiftDrtTaskFactory;
+import org.matsim.contrib.drt.extension.operations.shifts.schedule.DrtOperationsTaskFactory;
 import org.matsim.contrib.drt.extension.operations.shifts.schedule.WaitForShiftTask;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShift;
 import org.matsim.contrib.drt.extension.operations.shifts.shift.DrtShiftBreak;
@@ -64,7 +64,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
 
     private final static Logger logger = LogManager.getLogger(ShiftTaskSchedulerImpl.class);
 
-    private final ShiftDrtTaskFactory taskFactory;
+    private final DrtOperationsTaskFactory taskFactory;
     private final OperationFacilities facilities;
     private final Network network;
     private final OperationFacilityReservationManager facilityReservationManager;
@@ -84,7 +84,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
      */
     public ShiftTaskSchedulerImpl(
             OperationFacilities operationFacilities,
-            ShiftDrtTaskFactory taskFactory, 
+            DrtOperationsTaskFactory taskFactory, 
             Network network,
             OperationFacilityReservationManager facilityReservationManager,
             ShiftsParams shiftsParams, 
@@ -103,7 +103,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
      */
     public ShiftTaskSchedulerImpl(
             OperationFacilities operationFacilities,
-            ShiftDrtTaskFactory taskFactory, 
+            DrtOperationsTaskFactory taskFactory, 
             Network network,
             OperationFacilityReservationManager facilityReservationManager,
             ShiftsParams shiftsParams, 
@@ -153,8 +153,25 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
 
             if (Schedules.getLastTask(schedule).equals(currentTask)) {
                 waitForShiftTask.setEndTime(Math.max(now, shift.getStartTime()));
-                Optional<Id<ReservationManager.Reservation>> reservationId = waitForShiftTask.getReservationId();
-                reservationId.ifPresent(id -> facilityReservationManager.updateReservation(waitForShiftTask.getFacilityId(), id, now, shift.getStartTime()));
+                // the reservation of the wait task is released when the task ends (DrtShiftDispatcherImpl.endOperationalTask)
+
+                // A shift with a discretionary end (e.g. a remote-guidance virtual shift running to the simulation
+                // horizon) does NOT materialise a changeover/wait tail: the horizon-anchored changeover and its
+                // landing reservation would guard nothing, force a spurious end-of-day deadhead to a hub, and add the
+                // rigidity a recall then has to fight. Instead the vehicle simply stays in service until its service
+                // end; the actual end is materialised on demand by the dispatcher's early-end mechanism
+                // (endShiftActively / findShiftEndAnchor, which already handles the no-existing-changeover case).
+                if (!shift.hasCommittedEnd()) {
+                    // a discretionary-end shift carries no break (a break is a fixed roster commitment); guard the
+                    // assumption rather than silently dropping one.
+                    Gbl.assertIf(shift.getBreak().isEmpty());
+                    // the vehicle stays in service until its service end; guard against a degenerate (zero/negative)
+                    // stay from a shift started at or past the service end, mirroring the committed path's stay guard.
+                    Gbl.assertIf(now < vehicle.getServiceEndTime());
+                    schedule.addTask(taskFactory.createStayTask(vehicle, now, vehicle.getServiceEndTime(),
+                            waitForShiftTask.getLink()));
+                    return;
+                }
 
                 double initialStayEndTime = shift.getEndTime();
                 Optional<DrtShiftBreak> shiftBreak = shift.getBreak();
@@ -289,14 +306,22 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
     @Override
     public boolean updateShiftChange(ShiftDvrpVehicle vehicle, VrpPathWithTravelData vrpPath, DrtShift shift,
                                      ReservationManager.ReservationInfo<OperationFacility, DvrpVehicle> reservation,
-                                     Task lastTask) {
-        updateShiftChangeImpl(vehicle, vrpPath, shift, reservation, lastTask);
+                                     Task lastTask, double changeoverStartTime) {
+        updateShiftChangeImpl(vehicle, vrpPath, shift, reservation, lastTask, changeoverStartTime);
         return true;
     }
 
+    /**
+     * Reshapes the tail of the schedule so the vehicle routes to the reserved facility along {@code vrpPath} and
+     * performs a {@link ShiftChangeOverTask} there, followed by a {@link WaitForShiftTask} until the vehicle's service
+     * end. Everything after {@code lastTask} is removed first. The changeover begins at
+     * {@code max(changeoverStartTime, arrival)}: passing {@code shift.getEndTime()} keeps the vehicle waiting idle at
+     * the hub until its scheduled shift end (regular end-of-shift reschedule), while passing {@code now} makes the
+     * shift end on arrival (early termination). {@code shift.getEndTime()} itself is never mutated.
+     */
     private void updateShiftChangeImpl(DvrpVehicle vehicle, VrpPathWithTravelData vrpPath,
                                        DrtShift shift, ReservationManager.ReservationInfo<OperationFacility, DvrpVehicle> reservation,
-                                       Task lastTask) {
+                                       Task lastTask, double changeoverStartTime) {
         Schedule schedule = vehicle.getSchedule();
         List<Task> copy = new ArrayList<>(schedule.getTasks().subList(lastTask.getTaskIdx() + 1, schedule.getTasks().size()));
         for (Task task : copy) {
@@ -308,18 +333,18 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
             lastTask.setEndTime(vrpPath.getDepartureTime());
             schedule.addTask(taskFactory.createDriveTask(vehicle, vrpPath, TYPE));
         }
-        if (vrpPath.getArrivalTime() < shift.getEndTime()) {
-            schedule.addTask(taskFactory.createStayTask(vehicle, vrpPath.getArrivalTime(), shift.getEndTime(), vrpPath.getToLink()));
+        if (vrpPath.getArrivalTime() < changeoverStartTime) {
+            schedule.addTask(taskFactory.createStayTask(vehicle, vrpPath.getArrivalTime(), changeoverStartTime, vrpPath.getToLink()));
         }
-        final double endTime = Math.max(shift.getEndTime(), vrpPath.getArrivalTime()) + shiftsParams.getChangeoverDuration();
-        ShiftChangeOverTask changeTask = taskFactory.createShiftChangeoverTask(vehicle, Math.max(shift.getEndTime(),
+        final double endTime = Math.max(changeoverStartTime, vrpPath.getArrivalTime()) + shiftsParams.getChangeoverDuration();
+        ShiftChangeOverTask changeTask = taskFactory.createShiftChangeoverTask(vehicle, Math.max(changeoverStartTime,
                 vrpPath.getArrivalTime()), endTime, vrpPath.getToLink(), shift, reservation.resource().getId(), reservation.reservationId());
         schedule.addTask(changeTask);
-        
+
         // Create the wait task
         WaitForShiftTask waitTask = taskFactory.createWaitForShiftStayTask(vehicle, endTime, vehicle.getServiceEndTime(),
                 vrpPath.getToLink(), reservation.resource().getId(), reservation.reservationId());
-        
+
         schedule.addTask(waitTask);
     }
 
@@ -937,8 +962,18 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
     public void cancelAssignedShift(ShiftDvrpVehicle vehicle, double timeStep, DrtShift shift) {
         Schedule schedule = vehicle.getSchedule();
         StayTask stayTask = (StayTask) schedule.getCurrentTask();
-        if (stayTask instanceof WaitForShiftTask) {
+        if (stayTask instanceof WaitForShiftTask waitTask) {
             stayTask.setEndTime(vehicle.getServiceEndTime());
+            // the reservation may have been shortened to the start of the cancelled shift; the vehicle now stays
+            waitTask.getReservationId().ifPresent(id -> facilityReservationManager.findReservation(waitTask.getFacilityId(), id)
+                    .filter(reservation -> reservation.endTime() < vehicle.getServiceEndTime())
+                    .ifPresent(reservation -> {
+                        if (!facilityReservationManager.updateReservation(waitTask.getFacilityId(), id,
+                                reservation.startTime(), vehicle.getServiceEndTime())) {
+                            logger.warn("Could not extend the reservation of vehicle {} at facility {} after cancelling shift {}.",
+                                    vehicle.getId(), waitTask.getFacilityId(), shift.getId());
+                        }
+                    }));
         }
     }
     

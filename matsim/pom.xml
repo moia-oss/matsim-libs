@@ -117,7 +117,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-report-plugin</artifactId>
-				<version>3.5.6</version>
+				<version>3.6.0</version>
 			</plugin>
 		</plugins>
 	</reporting>
@@ -195,6 +195,7 @@
 		<dependency>
 			<groupId>com.google.inject</groupId>
 			<artifactId>guice</artifactId>
+			<classifier>classes</classifier>
 			<!-- Use newer guava version -->
 			<exclusions>
 				<exclusion>
@@ -204,9 +205,22 @@
 			</exclusions>
 		</dependency>
 		<dependency>
+			<!-- needed by the "classes" classifier of Guice, which does not include a (shaded) copy of ASM -->
+			<groupId>org.ow2.asm</groupId>
+			<artifactId>asm</artifactId>
+			<scope>runtime</scope>
+		</dependency>
+		<dependency>
 			<groupId>com.google.inject.extensions</groupId>
 			<artifactId>guice-grapher</artifactId>
 			<version>${guice.version}</version>
+			<exclusions>
+				<!-- we use the "classes" classifier of guice, see above -->
+				<exclusion>
+					<groupId>com.google.inject</groupId>
+					<artifactId>guice</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 		<dependency>
 			<groupId>com.google.guava</groupId>
@@ -229,7 +243,7 @@
 		<dependency>
 			<groupId>com.github.luben</groupId>
 			<artifactId>zstd-jni</artifactId>
-			<version>1.5.7-15</version>
+			<version>1.5.7-23</version>
 		</dependency>
 		<dependency>
 			<groupId>jakarta.validation</groupId>
@@ -240,7 +254,7 @@
 			<groupId>org.hibernate.validator</groupId>
 			<artifactId>hibernate-validator</artifactId>
 			<!-- versions 7.0.3 and 7.0.4 have issues with processing java records during compilation -->
-			<version>9.1.3.Final</version>
+			<version>9.1.4.Final</version>
 			<exclusions>
 				<exclusion>
 					<groupId>jakarta.validation</groupId>
@@ -252,7 +266,7 @@
 			<groupId>org.hibernate.validator</groupId>
 			<artifactId>hibernate-validator-annotation-processor</artifactId>
 			<!-- versions 7.0.3 and 7.0.4 have issues with processing java records during compilation -->
-			<version>9.1.3.Final</version>
+			<version>9.1.4.Final</version>
 		</dependency>
 		<dependency>
 			<groupId>org.glassfish</groupId>
@@ -367,28 +381,18 @@
 			<version>1.7</version>
 		</dependency>
 
-		<!-- Scan classpath to find providers -->
+		<!-- Scan classpath to find message types (org.matsim.core.serialization.MessageTypeRegistry) -->
 		<dependency>
 			<groupId>io.github.classgraph</groupId>
 			<artifactId>classgraph</artifactId>
 		</dependency>
 
-		<!-- These are for distributed simulation -->
-		<dependency>
-			<groupId>org.apache.fory</groupId>
-			<artifactId>fory-core</artifactId>
-			<optional>true</optional>
-		</dependency>
-		<dependency>
-			<groupId>org.apache.fory</groupId>
-			<artifactId>fory-format</artifactId>
-			<optional>true</optional>
-		</dependency>
-
+		<!-- Messaging internals of the DSim mobsim: agrona provides the lock-free queues and idle strategies,
+		     HdrHistogram the latency statistics. -->
 		<dependency>
 			<groupId>org.agrona</groupId>
 			<artifactId>agrona</artifactId>
-			<version>2.6.0</version>
+			<version>2.7.0</version>
 		</dependency>
 		<dependency>
 			<groupId>org.hdrhistogram</groupId>

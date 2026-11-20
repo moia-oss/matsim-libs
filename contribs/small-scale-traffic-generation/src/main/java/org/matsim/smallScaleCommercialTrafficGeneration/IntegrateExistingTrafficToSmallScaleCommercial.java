@@ -6,6 +6,9 @@ import org.matsim.application.options.ShpOptions;
 
 import java.util.Map;
 
+/**
+ *  This should be public because it can be used in other scenarios outside this package.
+ */
 public interface IntegrateExistingTrafficToSmallScaleCommercial {
 
 	void readExistingCarriersFromFolder(Scenario scenario, double sampleScenario,
