@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout git repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Java
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6
         with:
           java-version: 25
           distribution: 'zulu'
@@ -34,7 +34,7 @@ jobs:
 
       # in case something goes wrong in the previous step, we can inspect the logs
       - name: Upload Maven test reports
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: maven-test-reports-${{ matrix.os }}
           path: |
