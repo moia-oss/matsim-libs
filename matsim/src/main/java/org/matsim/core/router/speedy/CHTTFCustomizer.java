@@ -78,6 +78,9 @@ public class CHTTFCustomizer {
     private static final int PARALLEL_REAL_EDGE_THRESHOLD = 200;
 
     public void customize(CHGraph chGraph, TravelTime tt, TravelDisutility td) {
+        if (chGraph.isCustomizable()) {
+            throw new IllegalStateException("graph was built by customizable contraction; use CCHPotentials");
+        }
         if (!chGraph.isTimeDependent()) {
             throw new IllegalStateException(
                     "CHTTFCustomizer.customize requires a time-dependent CHGraph; "
@@ -238,7 +241,7 @@ public class CHTTFCustomizer {
      * Computes a lightweight fingerprint by summing travel times for a
      * spread of original edges at a few time bins.
      */
-    private static double computeFingerprint(CHGraph chGraph, TravelTime tt) {
+    static double computeFingerprint(CHGraph chGraph, TravelTime tt) {
         SpeedyGraph baseGraph = chGraph.getBaseGraph();
         int edgeCount = chGraph.totalEdgeCount;
         int[] origLink = chGraph.edgeOrigLink;

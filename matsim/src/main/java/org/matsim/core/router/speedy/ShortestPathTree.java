@@ -25,6 +25,7 @@ import org.matsim.api.core.v01.population.Person;
 import org.matsim.core.utils.misc.OptionalTime;
 import org.matsim.vehicles.Vehicle;
 
+import java.util.Collection;
 import java.util.Iterator;
 
 /**
@@ -36,6 +37,23 @@ import java.util.Iterator;
  * @author Steffen Axer
  */
 public interface ShortestPathTree {
+
+    /**
+     * Compute shortest paths from the given start link to all of the given nodes; other nodes may stay unlabelled.
+     * {@code allReached} must stop exactly when every target has been settled. The default runs
+     * {@link #calculate(Link, double, Person, Vehicle, LeastCostPathTree.StopCriterion)} with it; goal-directed trees
+     * ({@link CHPotentialTree}) use the targets instead and search towards them only.
+     */
+    default void calculateToTargets(Link startLink, double startTime, Person person, Vehicle vehicle, Collection<Node> targets,
+                                    LeastCostPathTree.StopCriterion allReached) {
+        calculate(startLink, startTime, person, vehicle, allReached);
+    }
+
+    /** Backward counterpart of {@link #calculateToTargets}. */
+    default void calculateBackwardsToTargets(Link arrivalLink, double arrivalTime, Person person, Vehicle vehicle, Collection<Node> targets,
+                                             LeastCostPathTree.StopCriterion allReached) {
+        calculateBackwards(arrivalLink, arrivalTime, person, vehicle, allReached);
+    }
 
     /**
      * Compute shortest paths from the given start link to all reachable nodes.

@@ -32,6 +32,7 @@ import org.matsim.contrib.dvrp.schedule.Task;
 import org.matsim.core.gbl.Gbl;
 import org.matsim.core.mobsim.framework.MobsimTimer;
 import org.matsim.core.router.speedy.SpeedyALTFactory;
+import org.matsim.core.router.util.LeastCostPathCalculatorFactory;
 import org.matsim.core.router.util.LeastCostPathCalculator;
 import org.matsim.core.router.util.TravelDisutility;
 import org.matsim.core.router.util.TravelTime;
@@ -52,12 +53,19 @@ public class EmptyVehicleRelocator {
     private final DrtTaskFactory taskFactory;
     private final LeastCostPathCalculator router;
 
+    /** Routes with SpeedyALT. */
     public EmptyVehicleRelocator(Network network, TravelTime travelTime, TravelDisutility travelDisutility,
                                  MobsimTimer timer, DrtTaskFactory taskFactory) {
+        this(network, travelTime, travelDisutility, timer, taskFactory, new SpeedyALTFactory());
+    }
+
+    /** Routes with the given factory, normally the configured routing algorithm's. */
+    public EmptyVehicleRelocator(Network network, TravelTime travelTime, TravelDisutility travelDisutility,
+                                 MobsimTimer timer, DrtTaskFactory taskFactory, LeastCostPathCalculatorFactory routerFactory) {
         this.travelTime = travelTime;
         this.timer = timer;
         this.taskFactory = taskFactory;
-        router = new SpeedyALTFactory().createPathCalculator(network, travelDisutility, travelTime);
+        router = routerFactory.createPathCalculator(network, travelDisutility, travelTime);
     }
 
     public void relocateVehicle(DvrpVehicle vehicle, Link link, DrtTaskType relocationTaskType) {

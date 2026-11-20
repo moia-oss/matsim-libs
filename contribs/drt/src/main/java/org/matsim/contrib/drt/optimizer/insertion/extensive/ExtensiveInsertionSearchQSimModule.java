@@ -82,7 +82,8 @@ public class ExtensiveInsertionSearchQSimModule extends AbstractDvrpModeQSimModu
 			boolean useCH = config.controller().getRoutingAlgorithmType()
 					== ControllerConfigGroup.RoutingAlgorithmType.CHRouter;
 
-			return new MultiInsertionDetourPathCalculatorManager(network, travelTime, travelDisutility, drtCfg, useCH);
+			return new MultiInsertionDetourPathCalculatorManager(network, travelTime, travelDisutility, drtCfg, useCH,
+					config.travelTimeCalculator());
 		}));
 	}
 }
