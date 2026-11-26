@@ -128,6 +128,14 @@ public class CHBuilder {
     private volatile int[] buildEdgeData;
     private volatile double[] buildEdgeWeights;
 
+    // ---- Customizable contraction (CCH) state; see withCustomizableContraction() ----
+    private boolean customizable;
+    /** Directed node pair (from << 32 | to) -> build index of its shortcut. */
+    private final java.util.HashMap<Long, Integer> pairShortcut = new java.util.HashMap<>();
+    /** Lower triangles as build-edge indices: shortcut, edge from -> middle, edge middle -> to. */
+    private int[] triShortcut = new int[1024], triLow1 = new int[1024], triLow2 = new int[1024];
+    private int triCount;
+
     // ---- Per-node adjacency lists (no global buffer) ----
     // outEdges[n] is a growable int[] of build-edge indices for out-edges of n.
     // outLen[n] is the number of valid entries.  Same for in.
@@ -440,8 +448,37 @@ public class CHBuilder {
         return this;
     }
 
+    /**
+     * Customizable contraction (CCH): contracts in the given order without any weight-based pruning, keeping one
+     * shortcut per directed node pair together with all its lower triangles. The structure then does not depend
+     * on costs, so it stays exact for any metric customized onto it (see {@link CCHPotentials}), and never
+     * needs re-contraction. Regular contraction drops shortcuts that a witness path makes unnecessary, which is
+     * only valid while the witness stays at least as fast:
+     *
+     * <pre>{@code
+     *   regular CH, built on free-flow times      after a jam on the witness
+     *
+     *     u ----- v ----- w                         u ----- v ----- w
+     *      \_____________/                           \______X______/
+     *       witness (free-flow faster)                witness jammed, shortcut u -> w missing
+     * }</pre>
+     *
+     * Only supported by {@link #buildWithOrder(int[])}; customize the graph with {@link CCHPotentials}.
+     */
+    public CHBuilder withCustomizableContraction() {
+        this.customizable = true;
+        return this;
+    }
+
+    private void requireRegularContraction(String method) {
+        if (customizable) {
+            throw new IllegalStateException(method + " does not support customizable contraction; use buildWithOrder(int[])");
+        }
+    }
+
     /** Runs the full CH build pipeline and returns the ready-to-customize graph. */
     public CHGraph build() {
+        requireRegularContraction("build()");
         int baseEdges = graph.linkCount;
         LOG.debug("CH contraction: importing {} links from base graph ({} nodes)...",
                 baseEdges, nodeCount);
@@ -526,6 +563,7 @@ public class CHBuilder {
      * @return the ready-to-customize CH graph.
      */
     public CHGraph buildWithOrderParallel(InertialFlowCutter.NDOrderResult orderResult, int nThreads) {
+        requireRegularContraction("buildWithOrderParallel");
         int baseEdges = graph.linkCount;
         LOG.debug("CH contraction (parallel): importing {} links from base graph ({} nodes)...",
                 baseEdges, nodeCount);
@@ -2135,6 +2173,10 @@ public class CHBuilder {
      * for ALL out-neighbours w simultaneously.
      */
     private void contractNodeBatched(int node) {
+        if (customizable) {
+            contractNodeCustomizable(node);
+            return;
+        }
         int[] oArr = outEdges[node];
         int oLen = Math.min(outLen[node], oArr.length);  // clamp: unsynchronized read
         int[] iArr = inEdges[node];
@@ -2208,6 +2250,45 @@ public class CHBuilder {
                 if (dedupGen[w] == dedupGeneration && dedupBest[w] <= shortcutCost) continue;
 
                 addBuildEdge(u, w, -1, node, inIdx, scratchOutEdgeIdx[t], shortcutCost);
+            }
+        }
+    }
+
+    /**
+     * Customizable contraction of one node: connects every remaining in-neighbour u with every remaining
+     * out-neighbour w through {@code node}, regardless of weights. One shortcut per directed pair (u, w); every
+     * lower triangle u -> node -> w (for every combination of parallel edges) is recorded for the customizer.
+     */
+    private void contractNodeCustomizable(int node) {
+        int[] oArr = outEdges[node];
+        int oLen = outLen[node];
+        int[] iArr = inEdges[node];
+        int iLen = inLen[node];
+        for (int j = 0; j < iLen; j++) {
+            int inIdx = iArr[j];
+            int u = buildEdgeData[inIdx * BE_SIZE + BE_FROM];
+            if (contracted[u] || u == node) continue;
+            for (int i = 0; i < oLen; i++) {
+                int outIdx = oArr[i];
+                int w = buildEdgeData[outIdx * BE_SIZE + BE_TO];
+                if (contracted[w] || w == node || w == u) continue;
+                long pair = ((long) u << 32) | (w & 0xffffffffL);
+                Integer shortcut = pairShortcut.get(pair);
+                if (shortcut == null) {
+                    // the first triangle is kept as lower1/lower2, which also defines the edge's distance
+                    shortcut = addBuildEdge(u, w, -1, node, inIdx, outIdx, buildEdgeWeights[inIdx] + buildEdgeWeights[outIdx]);
+                    pairShortcut.put(pair, shortcut);
+                }
+                if (triCount == triShortcut.length) {
+                    int newLen = triShortcut.length * 2;
+                    triShortcut = Arrays.copyOf(triShortcut, newLen);
+                    triLow1 = Arrays.copyOf(triLow1, newLen);
+                    triLow2 = Arrays.copyOf(triLow2, newLen);
+                }
+                triShortcut[triCount] = shortcut;
+                triLow1[triCount] = inIdx;
+                triLow2[triCount] = outIdx;
+                triCount++;
             }
         }
     }
@@ -2793,12 +2874,55 @@ public class CHBuilder {
             }
         }
 
-        return new CHGraph(graph, nodeCount,
+        CHGraph result = new CHGraph(graph, nodeCount,
                 totalUp, upOff, upCount, upEdges, upWeights,
                 totalDn, dnOff, dnCount, dnEdges, dnWeights,
                 totalEdgeCount, edgeOrigLink, edgeLower1, edgeLower2,
                 edgeDistance, customizeOrder, nodeLevel,
                 this.timeDependent);
+        if (customizable) {
+            addTriangles(result, oldToNew, upOff, upCount, dnOff, dnCount, totalUp);
+        }
+        return result;
+    }
+
+    /**
+     * Groups the recorded triangles by shortcut (CSR over global edge index) and orders the shortcuts by the
+     * level of their lower endpoint. In both CSR lists the owning node is an edge's lower endpoint: up-edges are
+     * stored at their (lower) source, down-edges at their (lower) target.
+     */
+    private void addTriangles(CHGraph result, int[] oldToNew, int[] upOff, int[] upCount, int[] dnOff, int[] dnCount, int totalUp) {
+        int totalEdgeCount = result.totalEdgeCount;
+        int[] triOff = new int[totalEdgeCount + 1];
+        for (int t = 0; t < triCount; t++) triOff[oldToNew[triShortcut[t]] + 1]++;
+        for (int e = 0; e < totalEdgeCount; e++) triOff[e + 1] += triOff[e];
+        int[] fill = Arrays.copyOf(triOff, totalEdgeCount);
+        int[] lower1 = new int[triCount], lower2 = new int[triCount];
+        for (int t = 0; t < triCount; t++) {
+            int pos = fill[oldToNew[triShortcut[t]]]++;
+            lower1[pos] = oldToNew[triLow1[t]];
+            lower2[pos] = oldToNew[triLow2[t]];
+        }
+
+        int[] ownerLevel = new int[totalEdgeCount];
+        for (int n = 0; n < nodeCount; n++) {
+            for (int k = 0; k < upCount[n]; k++) ownerLevel[upOff[n] + k] = nodeLevel[n];
+            for (int k = 0; k < dnCount[n]; k++) ownerLevel[totalUp + dnOff[n] + k] = nodeLevel[n];
+        }
+        int shortcuts = 0;
+        int[] levelCount = new int[nodeCount + 1];
+        for (int e = 0; e < totalEdgeCount; e++) {
+            if (result.edgeOrigLink[e] < 0) {
+                shortcuts++;
+                levelCount[ownerLevel[e] + 1]++;
+            }
+        }
+        for (int l = 0; l < nodeCount; l++) levelCount[l + 1] += levelCount[l];
+        int[] cchOrder = new int[shortcuts];
+        for (int e = 0; e < totalEdgeCount; e++) {
+            if (result.edgeOrigLink[e] < 0) cchOrder[levelCount[ownerLevel[e]]++] = e;
+        }
+        result.setTriangles(triOff, lower1, lower2, cchOrder);
     }
 
     // -------------------------------------------------------------------------

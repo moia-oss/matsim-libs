@@ -30,6 +30,7 @@ import org.matsim.contrib.common.util.ReflectiveConfigGroupWithConfigurableParam
 import org.matsim.contrib.dynagent.run.DynQSimConfigConsistencyChecker;
 import org.matsim.contrib.zone.skims.DvrpTravelTimeMatrixParams;
 import org.matsim.core.config.Config;
+import org.matsim.core.config.groups.ControllerConfigGroup;
 
 import jakarta.annotation.Nullable;
 import java.util.Set;
@@ -149,6 +150,15 @@ public class DvrpConfigGroup extends ReflectiveConfigGroupWithConfigurableParame
 		}
 		if(getTravelTimeEstimationAlpha() == 0.0 && getTravelTimeEstimationBeta() > 0) {
 			throw new RuntimeException("Online estimation beta should be 0 if travel time should not be updated.");
+		}
+		if (getTravelTimeEstimationBeta() > 0
+				&& config.controller().getRoutingAlgorithmType() == ControllerConfigGroup.RoutingAlgorithmType.CHRouter) {
+			// CHRouter samples travel times once per iteration (lower bounds and per-bin costs); online estimates change
+			// during the mobsim, so it would route on stale values. A bound valid under online estimation is no faster
+			// than SpeedyALT, because online corrections cover the near term, where DRT routes are.
+			throw new RuntimeException("Online travel time estimation (travelTimeEstimationBeta > 0) is not supported with"
+					+ " routingAlgorithmType CHRouter, which samples travel times once per iteration and would ignore the"
+					+ " online updates. Use SpeedyALT, or set travelTimeEstimationBeta to 0.");
 		}
 	}
 
