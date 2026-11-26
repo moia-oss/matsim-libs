@@ -411,7 +411,12 @@ final class RailsimEngine implements Steppable {
 
 		double reserveDist = RailsimCalc.calcReservationDistance(state, resources.getLink(state.headLink));
 
-		DispositionResponse response = disposition.requestNextSegment(time, state, reserveDist);
+		// Request the safety distance on top of the required stopping distance: the train drives up to the end
+		// of the window it is granted, so a window ending exactly at the stopping distance leaves no room for
+		// the next reservation.
+		double requestDist = reserveDist + SAFETY_DIST;
+
+		DispositionResponse response = disposition.requestNextSegment(time, state, requestDist);
 
 		// Disposition assigned a detour
 		if (state.pt != null && response.detour() != null) {
@@ -435,18 +440,18 @@ final class RailsimEngine implements Steppable {
 			));
 
 			// reserve the assigned links from the detour
-			response = disposition.requestNextSegment(time, state, reserveDist);
+			response = disposition.requestNextSegment(time, state, requestDist);
 		}
 
 		state.approvedDist = response.approvedDist();
 
 		assert FuzzyUtils.greaterEqualThan(state.approvedDist, 0) : "Approved distance must be positive, but was " + response.approvedDist();
 
-		// Stop when the approved distance is not enough
-		if (FuzzyUtils.lessThan(state.approvedDist, reserveDist + SAFETY_DIST))
-			state.approvedSpeed = 0;
-		else
-			state.approvedSpeed = response.approvedSpeed();
+		// The disposition returns approved speed 0 exactly when the train has to stop at the end of the window,
+		// i.e. when a link of the requested segment is only partially reserved. A stop derived from the granted
+		// distance instead fires whenever the window ends less than SAFETY_DIST beyond the required stopping
+		// distance, which happens on the open line with short links: the train braked for a stop that does not exist.
+		state.approvedSpeed = response.approvedSpeed();
 
 		// Return whether the train has to stop
 		return state.approvedSpeed != 0;
@@ -719,10 +724,13 @@ final class RailsimEngine implements Steppable {
 	private RailLink nextTailLink(TrainState state) {
 
 		RailLink nextTailLink = null;
-		// Find the next link in the route
+		// Find the next link in the route. The tail is at most one train length behind the head, so the
+		// nearest occurrence of the tail link is the one the tail is on, unless the route returns to that
+		// link within less than one train length.
 		for (int i = state.routeIdx; i >= 1; i--) {
 			if (state.route.get(i - 1).getLinkId().equals(state.tailLink)) {
 				nextTailLink = state.route.get(i);
+				break;
 			}
 		}
 
@@ -732,6 +740,7 @@ final class RailsimEngine implements Steppable {
 				if (state.previousRoute.get(i).getLinkId().equals(state.tailLink)) {
 					// Use next link from current route if it is the last
 					nextTailLink = i == state.previousRoute.size() - 1 ? state.route.getFirst() : state.previousRoute.get(i + 1);
+					break;
 				}
 			}
 
@@ -873,7 +882,7 @@ final class RailsimEngine implements Steppable {
 		if (!state.isRouteAtEnd() && !event.isAwaitingReservation()) {
 
 			// Check first if more distance than for the next stop is needed
-			double nextStop = RailsimCalc.calcDistToNextStop(state, currentLink);
+			double nextStop = distToNextStop(state);
 
 			if (!FuzzyUtils.equals(state.approvedDist, nextStop)) {
 				double requiredDist = RailsimCalc.calcReservationDistance(state, currentLink);
@@ -949,6 +958,18 @@ final class RailsimEngine implements Steppable {
 		assert Double.isFinite(event.plannedTime) : "Planned update time must be finite, but was " + event.plannedTime;
 		assert event.plannedTime >= state.timestamp : "Planned time must be after current time";
 
+	}
+
+	/**
+	 * Distance from the head to the end of the next stop link. {@link RailsimCalc#calcDistToNextStop} only
+	 * looks ahead of the head link, so a train that is already running along its stop link reports the stop
+	 * after that one instead.
+	 */
+	private double distToNextStop(TrainState state) {
+		RailLink head = resources.getLink(state.headLink);
+		if (state.isStop(state.headLink))
+			return head.length - state.headPosition;
+		return RailsimCalc.calcDistToNextStop(state, head);
 	}
 
 	/**
